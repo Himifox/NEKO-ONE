@@ -76,6 +76,7 @@ async def get_room(room_id: str, request: Request) -> dict:
     snapshot = await _service(request).store.room_snapshot(room_id)
     snapshot["online"] = await _service(request).hub.online_count(room_id)
     snapshot["limits"] = dict(_service(request).limits)
+    snapshot["controls"] = dict(_service(request).controls)
     snapshot["features"] = {
         "text": True,
         "live2d": True,

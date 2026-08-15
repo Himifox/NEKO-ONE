@@ -37,6 +37,12 @@ class LimitsUpdate(BaseModel):
     window_seconds: float = Field(ge=1, le=300)
 
 
+class RoomControlsUpdate(BaseModel):
+    paused: bool
+    read_only: bool
+    proactive_enabled: bool
+
+
 def _auth(request: Request, *, write: bool = False) -> str:
     manager = request.app.state.admin_sessions
     if not manager.enabled:
@@ -100,13 +106,19 @@ async def state(request: Request) -> dict:
     _auth(request)
     snapshot = await request.app.state.room_service.store.admin_snapshot()
     character, persona = await _persona()
+    service = request.app.state.room_service
+    active_generation = service.active_generation("main")
     snapshot.update(
         {
             "character": character,
             "persona": persona,
-            "online": await request.app.state.room_service.hub.online_count("main"),
-            "tts_configured": request.app.state.room_service.speech.configured,
-            "limits": dict(request.app.state.room_service.limits),
+            "online": await service.hub.online_count("main"),
+            "tts_configured": service.speech.configured,
+            "limits": dict(service.limits),
+            "controls": dict(service.controls),
+            "active_generation": (
+                active_generation.snapshot() if active_generation else None
+            ),
         }
     )
     return snapshot
@@ -133,6 +145,24 @@ async def update_limits(payload: LimitsUpdate, request: Request) -> dict:
     _auth(request, write=True)
     limits = await request.app.state.room_service.update_limits(payload.model_dump())
     return {"ok": True, "limits": limits}
+
+
+@router.put("/room-controls")
+async def update_room_controls(
+    payload: RoomControlsUpdate, request: Request
+) -> dict:
+    _auth(request, write=True)
+    controls = await request.app.state.room_service.update_controls(
+        "main", payload.model_dump()
+    )
+    return {"ok": True, "controls": controls}
+
+
+@router.post("/generation/cancel")
+async def cancel_generation(request: Request) -> dict:
+    _auth(request, write=True)
+    cancelled = await request.app.state.room_service.cancel_generation("main")
+    return {"ok": True, "cancelled": cancelled}
 
 
 @router.put("/visitors/{visitor_id}/status")

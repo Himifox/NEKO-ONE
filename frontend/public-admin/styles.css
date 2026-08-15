@@ -8,8 +8,11 @@ main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 72
 h1, h2 { margin-top: 0; } h2 { font-size: 17px; }
 form, .card { display: grid; gap: 14px; }
 input, textarea { width: 100%; padding: 11px 13px; color: #fff; border: 1px solid #493b56; border-radius: 11px; background: #15111b; font: inherit; }
+.toggle { display: flex; align-items: center; gap: 9px; }
+.toggle input { width: auto; accent-color: #c79af7; }
 textarea { resize: vertical; line-height: 1.55; }
 button { padding: 10px 14px; border: 0; border-radius: 11px; color: #160d20; background: #c79af7; font: inherit; font-weight: 700; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
 button.ghost { color: #d9c8ed; background: #28202f; } button.danger { color: #ffdfe4; background: #6d2632; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
 .topbar > div:last-child { display: flex; align-items: center; gap: 10px; }

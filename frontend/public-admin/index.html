@@ -49,6 +49,17 @@
             <button id="save-limits">保存限制</button>
           </section>
 
+          <section class="card">
+            <h2>房间应急控制</h2>
+            <p class="hint">暂停会中止当前回复；只读仅阻止新消息；主动主持由服务器唯一计时器执行。</p>
+            <label class="toggle"><input id="room-paused" type="checkbox" /> 暂停房间</label>
+            <label class="toggle"><input id="room-read-only" type="checkbox" /> 只读模式</label>
+            <label class="toggle"><input id="proactive-enabled" type="checkbox" /> 允许主动主持</label>
+            <button id="save-controls">保存房间控制</button>
+            <button id="cancel-generation" class="danger">取消当前回复</button>
+            <p id="generation-state" class="hint"></p>
+          </section>
+
           <section class="card wide"><h2>访客与封禁</h2><div id="visitors" class="table"></div></section>
           <section class="card wide"><h2>消息审核</h2><div id="messages" class="table"></div></section>
           <section class="card wide"><h2>审计日志</h2><div id="audit" class="table"></div></section>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import sys
@@ -35,6 +36,7 @@ def main() -> None:
     from fastapi.testclient import TestClient
 
     from app.public_room_server.web_app import app
+    from main_logic.room.service import PublicRoomService
 
     async def fake_generate(*, room_context, user_text, on_delta):
         assert "公共房间" in room_context
@@ -146,6 +148,131 @@ def main() -> None:
             )
             assert limits.status_code == 200
             assert limits.json()["limits"]["messages_per_window"] == 4
+
+            controls = client.put(
+                "/api/v1/admin/room-controls",
+                json={
+                    "paused": False,
+                    "read_only": True,
+                    "proactive_enabled": False,
+                },
+                headers=headers,
+            )
+            assert controls.status_code == 200
+            assert controls.json()["controls"]["read_only"] is True
+            room = client.get("/api/v1/rooms/main").json()
+            assert room["controls"] == controls.json()["controls"]
+            with client.websocket_connect(
+                f"/ws/rooms/main?after_seq={room['last_seq']}"
+            ) as read_only_ws:
+                _drain_until(read_only_ws, "presence.updated")
+                read_only_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-read-only",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                rejected = _drain_until(read_only_ws, "command.rejected")[-1]
+                assert rejected["payload"]["code"] == "room_read_only"
+
+            paused = client.put(
+                "/api/v1/admin/room-controls",
+                json={
+                    "paused": True,
+                    "read_only": False,
+                    "proactive_enabled": False,
+                },
+                headers=headers,
+            )
+            assert paused.status_code == 200
+            assert paused.json()["controls"]["paused"] is True
+            room = client.get("/api/v1/rooms/main").json()
+            with client.websocket_connect(
+                f"/ws/rooms/main?after_seq={room['last_seq']}"
+            ) as paused_ws:
+                _drain_until(paused_ws, "presence.updated")
+                paused_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-paused",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                rejected = _drain_until(paused_ws, "command.rejected")[-1]
+                assert rejected["payload"]["code"] == "room_paused"
+
+            proactive = client.put(
+                "/api/v1/admin/room-controls",
+                json={
+                    "paused": False,
+                    "read_only": False,
+                    "proactive_enabled": True,
+                },
+                headers=headers,
+            )
+            assert proactive.status_code == 200
+            assert proactive.json()["controls"]["proactive_enabled"] is True
+            disabled_proactive = client.put(
+                "/api/v1/admin/room-controls",
+                json={
+                    "paused": False,
+                    "read_only": False,
+                    "proactive_enabled": False,
+                },
+                headers=headers,
+            )
+            assert disabled_proactive.status_code == 200
+
+            async def slow_generate(*, room_context, user_text, on_delta):
+                assert "公共房间" in room_context
+                await on_delta("等")
+                await asyncio.Event().wait()
+
+            app.state.room_service.engine.generate = slow_generate
+            room = client.get("/api/v1/rooms/main").json()
+            with client.websocket_connect(
+                f"/ws/rooms/main?after_seq={room['last_seq']}"
+            ) as cancellable_ws:
+                _drain_until(cancellable_ws, "presence.updated")
+                cancellable_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-cancel",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                _drain_until(cancellable_ws, "stream.delta")
+                cancelled = client.post(
+                    "/api/v1/admin/generation/cancel", headers=headers
+                )
+                assert cancelled.status_code == 200
+                assert cancelled.json()["cancelled"] is True
+                cancelled_events = _drain_until(cancellable_ws, "stream.failed")
+                assert any(
+                    event.get("type") == "turn.interrupted"
+                    and event.get("payload", {}).get("reason") == "admin_cancelled"
+                    for event in cancelled_events
+                )
+                assert cancelled_events[-1]["payload"]["code"] == "admin_cancelled"
+
+                app.state.room_service.engine.generate = fake_generate
+                cancellable_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-after-cancel",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                resumed_events = _drain_until(
+                    cancellable_ws, "stream.completed"
+                )
+                assert any(
+                    event.get("type") == "message.created"
+                    and event.get("payload", {}).get("content") == "你好"
+                    for event in resumed_events
+                )
+
             assistant_id = history[-1]["id"]
             hidden = client.put(
                 f"/api/v1/admin/messages/{assistant_id}/status",
@@ -154,13 +281,19 @@ def main() -> None:
             )
             assert hidden.status_code == 200
             visible_history = client.get("/api/v1/rooms/main/messages").json()["messages"]
-            assert [message["content"] for message in visible_history] == ["NEKO 你好"]
+            assert assistant_id not in {
+                message["id"] for message in visible_history
+            }
             restored = client.put(
                 f"/api/v1/admin/messages/{assistant_id}/status",
                 json={"status": "visible"},
                 headers=headers,
             )
             assert restored.status_code == 200
+            restored_history = client.get("/api/v1/rooms/main/messages").json()[
+                "messages"
+            ]
+            assert assistant_id in {message["id"] for message in restored_history}
             visitor_id = session.json()["visitor"]["id"]
             banned = client.put(
                 f"/api/v1/admin/visitors/{visitor_id}/status",
@@ -168,6 +301,38 @@ def main() -> None:
                 headers=headers,
             )
             assert banned.status_code == 200
+
+            persisted_controls = client.put(
+                "/api/v1/admin/room-controls",
+                json={
+                    "paused": False,
+                    "read_only": True,
+                    "proactive_enabled": False,
+                },
+                headers=headers,
+            )
+            assert persisted_controls.status_code == 200
+
+        async def verify_controls_after_restart() -> None:
+            restarted = PublicRoomService(
+                database_path=data_dir / "public-room.db"
+            )
+
+            async def fake_character():
+                return "NEKO", "verification persona"
+
+            restarted.engine.character = fake_character
+            await restarted.start()
+            try:
+                assert restarted.controls == {
+                    "paused": False,
+                    "read_only": True,
+                    "proactive_enabled": False,
+                }
+            finally:
+                await restarted.shutdown()
+
+        asyncio.run(verify_controls_after_restart())
     finally:
         shutil.rmtree(data_dir, ignore_errors=False)
 

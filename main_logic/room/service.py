@@ -39,6 +39,7 @@ class PublicRoomService:
         self.directors: dict[str, RoomDirector] = {}
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._proactive_tasks: dict[str, asyncio.Task[None]] = {}
+        self._active_turn_tasks: dict[str, asyncio.Task[None]] = {}
         self._active_generations: dict[str, ActiveGeneration] = {}
         self._recent_submissions: dict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=32)
@@ -49,10 +50,20 @@ class PublicRoomService:
         self._last_proactive: dict[str, float] = defaultdict(lambda: 0.0)
         self._started = False
         self._shutdown_lock = asyncio.Lock()
+        self._room_resumed = asyncio.Event()
+        self._room_resumed.set()
         self.limits = {
             "max_message_chars": 2000,
             "messages_per_window": 5,
             "window_seconds": 10.0,
+        }
+        self.controls = {
+            "paused": False,
+            "read_only": False,
+            "proactive_enabled": os.environ.get(
+                "NEKO_PUBLIC_PROACTIVE_ENABLED", "0"
+            )
+            == "1",
         }
 
     async def start(self) -> None:
@@ -62,6 +73,9 @@ class PublicRoomService:
         stored_limits = await self.store.get_setting("public_limits", {})
         if isinstance(stored_limits, dict):
             self._apply_limits(stored_limits)
+        stored_controls = await self.store.get_setting("room_controls", {})
+        if isinstance(stored_controls, dict):
+            self._apply_controls(stored_controls)
         await self._ensure_room_runtime("main")
         self._started = True
 
@@ -74,11 +88,7 @@ class PublicRoomService:
         self._workers[room_id] = asyncio.create_task(
             self._room_worker(room_id, director), name=f"public-room-worker:{room_id}"
         )
-        if os.environ.get("NEKO_PUBLIC_PROACTIVE_ENABLED", "0") == "1":
-            self._proactive_tasks[room_id] = asyncio.create_task(
-                self._proactive_loop(room_id),
-                name=f"public-room-proactive:{room_id}",
-            )
+        await self._sync_proactive_task(room_id)
 
     async def submit_message(
         self,
@@ -111,6 +121,7 @@ class PublicRoomService:
                 message, event = previous
                 duplicate = True
             else:
+                self._ensure_room_accepting_messages()
                 self._enforce_rate_limit(visitor.id)
                 message, event, duplicate = await self.store.append_user_message(
                     room_id=room_id,
@@ -159,11 +170,106 @@ class PublicRoomService:
         self._recent_submissions.clear()
         return dict(self.limits)
 
+    def _ensure_room_accepting_messages(self) -> None:
+        if self.controls["paused"]:
+            raise RoomInputError("room_paused", "room is paused by an administrator")
+        if self.controls["read_only"]:
+            raise RoomInputError(
+                "room_read_only", "room is temporarily read-only"
+            )
+
+    def _apply_controls(self, values: dict[str, Any]) -> None:
+        self.controls = {
+            "paused": bool(values.get("paused", self.controls["paused"])),
+            "read_only": bool(
+                values.get("read_only", self.controls["read_only"])
+            ),
+            "proactive_enabled": bool(
+                values.get(
+                    "proactive_enabled", self.controls["proactive_enabled"]
+                )
+            ),
+        }
+        if self.controls["paused"]:
+            self._room_resumed.clear()
+        else:
+            self._room_resumed.set()
+
+    async def update_controls(
+        self, room_id: str, values: dict[str, Any]
+    ) -> dict[str, bool]:
+        previous = dict(self.controls)
+        self._apply_controls(values)
+        await self.store.set_setting("room_controls", self.controls)
+        await self._sync_proactive_task(room_id)
+        if self.controls["paused"] and not previous["paused"]:
+            await self.cancel_generation(room_id, reason="room_paused")
+        event = await self.store.append_event(
+            room_id,
+            "room.control.updated",
+            {"controls": dict(self.controls)},
+        )
+        await self.hub.broadcast(room_id, event)
+        await self._broadcast_queue(room_id)
+        return dict(self.controls)
+
+    async def _sync_proactive_task(self, room_id: str) -> None:
+        existing = self._proactive_tasks.get(room_id)
+        if self.controls["proactive_enabled"]:
+            if existing is None or existing.done():
+                self._proactive_tasks[room_id] = asyncio.create_task(
+                    self._proactive_loop(room_id),
+                    name=f"public-room-proactive:{room_id}",
+                )
+            return
+        if existing is not None:
+            self._proactive_tasks.pop(room_id, None)
+            existing.cancel()
+            await asyncio.gather(existing, return_exceptions=True)
+
+    async def cancel_generation(
+        self, room_id: str, *, reason: str = "admin_cancelled"
+    ) -> bool:
+        task = self._active_turn_tasks.get(room_id)
+        generation = self._active_generations.get(room_id)
+        if (
+            task is None
+            or task.done()
+            or generation is None
+            or generation.phase not in {"preparing", "generating"}
+        ):
+            return False
+        generation.cancel_reason = reason
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await self.store.audit(
+            "room.generation.cancel",
+            "room",
+            room_id,
+            {"generation_id": generation.id, "reason": reason},
+        )
+        await self._broadcast_queue(room_id)
+        return True
+
     async def _room_worker(self, room_id: str, director: RoomDirector) -> None:
         while True:
             try:
+                await self._room_resumed.wait()
                 candidate, decision = await director.next_turn()
-                await self._run_turn(room_id, candidate, decision)
+                await self._room_resumed.wait()
+                turn_task = asyncio.create_task(
+                    self._run_turn(room_id, candidate, decision),
+                    name=f"public-room-turn:{room_id}",
+                )
+                self._active_turn_tasks[room_id] = turn_task
+                try:
+                    await turn_task
+                except asyncio.CancelledError:
+                    if asyncio.current_task().cancelling():
+                        raise
+                finally:
+                    if self._active_turn_tasks.get(room_id) is turn_task:
+                        self._active_turn_tasks.pop(room_id, None)
                 await self._broadcast_queue(room_id)
             except asyncio.CancelledError:
                 raise
@@ -184,6 +290,8 @@ class PublicRoomService:
             now = time.monotonic()
             director = self.directors.get(room_id)
             if director is None or await self.hub.online_count(room_id) <= 0:
+                continue
+            if self.controls["paused"] or not self.controls["proactive_enabled"]:
                 continue
             if room_id in self._active_generations or await director.size() > 0:
                 continue
@@ -284,6 +392,7 @@ class PublicRoomService:
                     },
                 )
 
+            generation.phase = "generating"
             character_name, raw_final_text = await self.engine.generate(
                 room_context=room_context,
                 user_text=(
@@ -300,6 +409,10 @@ class PublicRoomService:
             final_text, emotion = split_emotion_tags(raw_final_text)
             if not final_text:
                 raise RuntimeError("model returned an empty response")
+            # From this point forward, cancellation is cooperative-only. In
+            # particular, never cancel the SQLite commit thread after it has
+            # started and then mark the same turn as interrupted.
+            generation.phase = "finalizing"
             await self.hub.broadcast(
                 room_id,
                 {
@@ -340,6 +453,7 @@ class PublicRoomService:
                 },
             )
             await self.store.finish_turn(turn_id, status="completed")
+            generation.phase = "completed"
             self._last_room_activity[room_id] = time.monotonic()
             self._spawn_background_task(
                 self._publish_speech(
@@ -361,9 +475,35 @@ class PublicRoomService:
                     name="public-room-memory-write",
                 )
         except asyncio.CancelledError:
-            await self.store.finish_turn(turn_id, status="interrupted", error_code="cancelled")
+            generation.phase = "interrupted"
+            reason = generation.cancel_reason or "cancelled"
+            await self.store.finish_turn(
+                turn_id, status="interrupted", error_code=reason
+            )
+            interrupted_event = await self.store.append_event(
+                room_id,
+                "turn.interrupted",
+                {
+                    "turn_id": turn_id,
+                    "generation_id": generation.id,
+                    "reason": reason,
+                },
+            )
+            await self.hub.broadcast(room_id, interrupted_event)
+            await self.hub.broadcast(
+                room_id,
+                {
+                    "type": "stream.failed",
+                    "server_time": utc_now(),
+                    "payload": {
+                        "generation_id": generation.id,
+                        "code": reason,
+                    },
+                },
+            )
             raise
         except Exception as exc:
+            generation.phase = "failed"
             logger.exception("public-room generation failed")
             await self.store.finish_turn(
                 turn_id, status="failed", error_code=type(exc).__name__
@@ -476,15 +616,21 @@ class PublicRoomService:
                 await director.close()
             for worker in self._workers.values():
                 worker.cancel()
+            for task in self._active_turn_tasks.values():
+                task.cancel()
             for task in self._proactive_tasks.values():
                 task.cancel()
             await asyncio.gather(*self._workers.values(), return_exceptions=True)
+            await asyncio.gather(
+                *self._active_turn_tasks.values(), return_exceptions=True
+            )
             await asyncio.gather(*self._proactive_tasks.values(), return_exceptions=True)
             if self._background_tasks:
                 await asyncio.gather(*self._background_tasks, return_exceptions=True)
             await self.speech.shutdown()
             await self.hub.shutdown()
             self._workers.clear()
+            self._active_turn_tasks.clear()
             self._proactive_tasks.clear()
             self.directors.clear()
             self._started = False

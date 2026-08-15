@@ -63,6 +63,8 @@ class ActiveGeneration:
     source_message_ids: list[str]
     text: str = ""
     chunk_index: int = 0
+    phase: str = "preparing"
+    cancel_reason: str | None = None
     started_at: str = field(default_factory=utc_now)
 
     def snapshot(self) -> dict[str, Any]:
@@ -73,5 +75,7 @@ class ActiveGeneration:
             "source_message_ids": list(self.source_message_ids),
             "text": self.text,
             "chunk_index": self.chunk_index,
+            "phase": self.phase,
+            "cancellable": self.phase in {"preparing", "generating"},
             "started_at": self.started_at,
         }

@@ -11,6 +11,8 @@
     rawStream: "",
     audio: null,
     muted: localStorage.getItem("neko.room.soundMuted") === "1",
+    connectionState: "connecting",
+    controls: { paused: false, read_only: false, proactive_enabled: false },
   };
 
   const timeline = document.getElementById("timeline");
@@ -43,12 +45,26 @@
     if (detected) globalThis.NekoPublicAvatar?.setEmotion?.(detected);
   }
 
+  function updateComposerAvailability() {
+    const enabled = state.connectionState === "online"
+      && !state.controls.paused
+      && !state.controls.read_only;
+    input.disabled = !enabled;
+    sendButton.disabled = !enabled;
+  }
+
   function setConnection(label, value) {
     connectionState.textContent = label;
     connectionState.dataset.state = value;
-    const enabled = value === "online";
-    input.disabled = !enabled;
-    sendButton.disabled = !enabled;
+    state.connectionState = value;
+    updateComposerAvailability();
+  }
+
+  function applyRoomControls(controls) {
+    state.controls = { ...state.controls, ...(controls || {}) };
+    updateComposerAvailability();
+    if (state.controls.paused) queueState.textContent = "房间已暂停";
+    else if (state.controls.read_only) queueState.textContent = "房间当前只读";
   }
 
   function updateSoundButton() {
@@ -122,11 +138,18 @@
         onlineCount.textContent = String(payload.online ?? 0);
         break;
       case "queue.updated":
-        queueState.textContent = payload.generating
-          ? `NEKO 正在回复 · ${payload.waiting ?? 0} 条等待`
-          : payload.waiting
-            ? `${payload.waiting} 条消息等待`
-            : "等待消息";
+        if (state.controls.paused) queueState.textContent = "房间已暂停";
+        else if (state.controls.read_only) queueState.textContent = "房间当前只读";
+        else {
+          queueState.textContent = payload.generating
+            ? `NEKO 正在回复 · ${payload.waiting ?? 0} 条等待`
+            : payload.waiting
+              ? `${payload.waiting} 条消息等待`
+              : "等待消息";
+        }
+        break;
+      case "room.control.updated":
+        applyRoomControls(payload.controls);
         break;
       case "stream.started":
         state.rawStream = "";
@@ -180,6 +203,7 @@
       const room = await roomResponse.json();
       const maximum = Number(room.limits?.max_message_chars || 2000);
       input.maxLength = Math.max(100, Math.min(maximum, 4000));
+      applyRoomControls(room.controls);
     }
   }
 

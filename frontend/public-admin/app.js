@@ -40,6 +40,14 @@
     document.getElementById("max-message-chars").value = state.limits.max_message_chars;
     document.getElementById("messages-per-window").value = state.limits.messages_per_window;
     document.getElementById("window-seconds").value = state.limits.window_seconds;
+    document.getElementById("room-paused").checked = Boolean(state.controls.paused);
+    document.getElementById("room-read-only").checked = Boolean(state.controls.read_only);
+    document.getElementById("proactive-enabled").checked = Boolean(state.controls.proactive_enabled);
+    const cancelGeneration = document.getElementById("cancel-generation");
+    cancelGeneration.disabled = !state.active_generation?.cancellable;
+    document.getElementById("generation-state").textContent = state.active_generation
+      ? `正在生成：${state.active_generation.generation_id} · ${state.active_generation.phase}`
+      : "当前没有进行中的回复";
     const visitors = document.getElementById("visitors"); visitors.replaceChildren();
     state.visitors.forEach((visitor) => visitors.append(row(
       `${visitor.display_name} · ${visitor.status}`,
@@ -83,6 +91,12 @@
     messages_per_window: Number(document.getElementById("messages-per-window").value),
     window_seconds: Number(document.getElementById("window-seconds").value),
   }));
+  document.getElementById("save-controls").addEventListener("click", () => mutate("/room-controls", "PUT", {
+    paused: document.getElementById("room-paused").checked,
+    read_only: document.getElementById("room-read-only").checked,
+    proactive_enabled: document.getElementById("proactive-enabled").checked,
+  }));
+  document.getElementById("cancel-generation").addEventListener("click", () => mutate("/generation/cancel", "POST"));
   dashboard.addEventListener("click", async (event) => {
     const target = event.target.closest("button[data-action]"); if (!target) return;
     const id = target.dataset.id;
