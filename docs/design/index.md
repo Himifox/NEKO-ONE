@@ -10,6 +10,7 @@
 - [公共房间 Web 架构](./public-room-web-architecture.md)：产品边界、组件职责、消息协议、身份、安全、部署与迁移计划。
 - [数据保留 ADR](./retention-policy.md)：消息、访客记忆、审计、共享语音的期限、清理顺序和失败重试。
 - [公网边界与依赖降级 ADR](./public-edge-security.md)：OpenResty/Nginx、浏览器安全策略、请求限制和 LLM/Memory/TTS 故障语义。
+- [PostgreSQL 存储决策](./postgresql-storage.md)：第一版业务数据迁移、单写事务、备份恢复以及暂不上 Redis 的边界。
 - [长期记忆架构](../architecture/memory-system.md)：Recent → Facts → Reflections → Persona 的证据链与召回流程。
 - [容量与稳定性验证](../operations/capacity-and-soak.md)：10/25/50 人负载、慢连接隔离和 24 小时 soak 的执行门槛。
 - [备份与恢复](../operations/backup-and-restore.md)：一致性快照、清单、隔离恢复和异机演练的操作约束。
