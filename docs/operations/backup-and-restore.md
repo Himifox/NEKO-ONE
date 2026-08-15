@@ -6,7 +6,7 @@
 
 `.github/workflows/verify-public-runtime.yml` 会在独立的 GitHub Actions `debian:12-slim` 容器中，用合成的公共数据库、Memory 数据和私有配置执行备份、校验、隔离恢复、篡改检测和路径穿越拒绝。该检查证明工具可在目标 Debian 系列环境运行，但不替代使用生产备份完成的异机恢复演练。
 
-2026-08-15 的 Debian 12 自动演练已通过，记录见 [`debian-ci-2026-08-15.json`](../evidence/debian-ci-2026-08-15.json) 和 [GitHub Actions 运行 #31891386206](https://github.com/Himifox/NEKO-ONE/actions/runs/31891386206)。
+2026-08-15 的 Debian 12 自动演练已通过，记录见 [`debian-ci-2026-08-15.json`](../evidence/debian-ci-2026-08-15.json) 和 [GitHub Actions 运行 #31892016810](https://github.com/Himifox/NEKO-ONE/actions/runs/31892016810)。该运行还使用 Debian 的 Nginx 包对 `neko.pardofelis.wiki` 配置执行了真实语法检查。
 
 ## 恢复目标
 
