@@ -22,7 +22,7 @@ validation (e.g. ``memory_router.validate_chat_payload``).
 Design (see issue #1586, raised from the PR #1585 discussion):
 
 - Only non-multipart requests are capped. ``multipart/form-data`` is the file
-  upload path (Live2D/VRM/MMD models, jukebox music, character-card zips, ...)
+  upload path; the public runtime has no generic upload endpoint
   whose legitimate bodies routinely run to hundreds of MB or GB. Those upload
   routers already enforce their own 1 MB-chunk streaming guards (read-and-tally,
   stop on overflow, never buffering the whole body in memory), so this guard

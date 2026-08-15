@@ -130,7 +130,7 @@ class Instrument:
 
         Example:
             counter("user_message_sent", 1, surface="pet_widget")
-            counter("feature_invoked", 1, feature="galgame", first_use=True)
+            counter("feature_invoked", 1, feature="public_room", first_use=True)
         """
         if not name or not isinstance(value, (int, float)):
             return

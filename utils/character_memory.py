@@ -82,7 +82,7 @@ def iter_character_memory_roots(config_manager) -> list[Path]:
 
       - Startup soft migration: ``ConfigManager.migrate_legacy_documents_memory`` only
         moves directories still present in ``characters.json[猫娘]`` to the runtime.
-      - Manual cleanup button: the Workshop page's "clean up legacy memory" scan +
+      - Manual cleanup action: the administrator's legacy-memory scan +
         user-checked deletion.
     """  # noqa: DOCSTRING_CJK
     roots: list[Path] = []

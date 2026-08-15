@@ -33,6 +33,7 @@ FORBIDDEN_LEGACY_SOURCES = (
     "utils/twitch_auth.py",
     "utils/voice_clone.py",
     "utils/voice_design.py",
+    "utils/audio.py",
     "utils/web_scraper",
     "utils/workshop_utils.py",
     "config/activity_keywords.py",

@@ -1032,7 +1032,7 @@ INNER_THOUGHTS_DYNAMIC = {
     "pt": "A hora atual é {time}. Antes de iniciar a conversa, {name} revisa mentalmente os acontecimentos recentes.\n",
 }
 
-# ---------- /get_recent_history 端点文案（game/galgame 流程消费，须 i18n） ----------
+# ---------- /get_recent_history 端点文案（兼容内部检索，须 i18n） ----------
 # 这两条历史上硬编码成中文，非中文用户的游戏流程会读到中文引导句。
 RECENT_HISTORY_INTRO = {
     "zh": "开始聊天前，{name}又在脑海内整理了近期发生的事情。\n",
