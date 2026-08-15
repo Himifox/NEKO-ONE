@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="same-origin" />
+    <title>NEKO 公共房间</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="room-shell">
+      <section class="stage" aria-label="NEKO 形象区域">
+        <div class="stage-glow"></div>
+        <canvas id="live2d-canvas" aria-label="NEKO Live2D" width="720" height="720"></canvas>
+        <div class="avatar-placeholder" id="avatar-placeholder">
+          <span>NEKO</span>
+          <small>正在加载 Live2D</small>
+        </div>
+        <div class="presence-pill"><span class="presence-dot"></span><span id="online-count">0</span> 人在线</div>
+      </section>
+
+      <section class="chat-panel" aria-label="公共聊天">
+        <header>
+          <div>
+            <p class="eyebrow">长期在线实体</p>
+            <h1>NEKO 公共房间</h1>
+          </div>
+          <div id="connection-state" class="connection-state" data-state="connecting">连接中</div>
+        </header>
+
+        <div id="timeline" class="timeline" role="log" aria-live="polite" aria-relevant="additions"></div>
+        <div id="stream-row" class="stream-row" hidden>
+          <strong>NEKO</strong>
+          <p id="stream-text"></p>
+        </div>
+
+        <div class="room-status">
+          <span id="queue-state">等待消息</span>
+          <span class="room-status-actions">
+            <button type="button" id="sound-toggle" class="text-button" aria-pressed="false">声音：开</button>
+            <span id="visitor-name">游客</span>
+          </span>
+        </div>
+
+        <form id="composer" autocomplete="off">
+          <label class="sr-only" for="message-input">发送消息</label>
+          <textarea
+            id="message-input"
+            rows="2"
+            maxlength="2000"
+            placeholder="和 NEKO 说点什么…"
+            required
+          ></textarea>
+          <button type="submit" id="send-button">发送</button>
+        </form>
+      </section>
+    </main>
+    <script src="/runtime/live2dcubismcore.min.js"></script>
+    <script src="/runtime/pixi.min.js"></script>
+    <script src="/runtime/live2d.min.js"></script>
+    <script src="/assets/live2d.js" defer></script>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

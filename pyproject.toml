@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "neko-one"
+version = "0.1.0"
+description = "A persistent Live2D entity that hosts a shared public chat room"
+readme = "README.MD"
+requires-python = "==3.11.*"
+license = {file = "LICENSE"}
+dependencies = [
+  "fastapi~=0.115.9",
+  "uvicorn[standard]>=0.34,<1",
+  "httpx[socks]>=0.28.1",
+  "websockets~=15.0.1",
+  "websocket-client~=1.8.0",
+  "python-multipart",
+  "aiohttp>=3.10",
+  "requests>=2.32.5",
+  "backoff",
+  "regex",
+  "numpy~=1.26.4",
+  "soxr~=0.5.0",
+  "openai>=1.75",
+  "google-genai>=1.56.0",
+  "anthropic",
+  "dashscope==1.25.4",
+  "sqlalchemy>=2.0",
+  "orjson>=3.11.8",
+  "tiktoken>=0.7.0",
+  "onnxruntime",
+  "tokenizers",
+  "cachetools>=5.3",
+  "portalocker>=2.10.1",
+  "pyzmq>=27.1.0",
+  "ormsgpack>=1.4.0",
+  "cryptography>=45.0.6",
+  "python-dotenv>=1.2.1",
+  "tomli>=2.3.0",
+  "tomli-w>=1.2.0",
+  "pyyaml>=6.0",
+  "jmespath>=1.1.0",
+  "pillow",
+]
+
+[project.scripts]
+neko-public = "app.public_room_server.__main__:main"
+neko-memory = "app.memory_server.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "config", "main_logic", "main_routers", "memory", "utils"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "app", "assets", "config", "deploy", "docs/design/public-room-web-architecture.md",
+  "frontend/public-admin", "frontend/public-room", "main_logic", "main_routers",
+  "memory", "scripts/check_public_boundary.py", "scripts/verify_public_room.py",
+  "static/libs", "utils", ".env.public.example", "requirements-public.txt",
+  "README.MD", "LICENSE", "NOTICE",
+]
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["var", ".venv"]

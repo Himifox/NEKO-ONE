@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="same-origin" />
+    <title>NEKO 公共房间管理</title>
+    <link rel="stylesheet" href="/admin-assets/styles.css" />
+  </head>
+  <body>
+    <main>
+      <section id="login-card" class="card login-card">
+        <p class="eyebrow">PRIVATE ADMIN</p>
+        <h1>NEKO 房间管理</h1>
+        <form id="login-form">
+          <label for="admin-password">管理密码</label>
+          <input id="admin-password" type="password" minlength="12" required autocomplete="current-password" />
+          <button>登录</button>
+        </form>
+        <p id="login-error" class="error" role="alert"></p>
+      </section>
+
+      <section id="dashboard" hidden>
+        <header class="topbar">
+          <div><p class="eyebrow">PRIVATE ADMIN</p><h1>NEKO 房间管理</h1></div>
+          <div><span id="summary"></span><button id="refresh">刷新</button><button id="logout" class="ghost">退出</button></div>
+        </header>
+
+        <div class="grid">
+          <section class="card wide">
+            <h2>受保护 Persona</h2>
+            <p class="hint">只有管理员可写；访客记忆不会自动进入这里。</p>
+            <textarea id="persona" rows="14" maxlength="50000"></textarea>
+            <button id="save-persona">保存 Persona</button>
+          </section>
+
+          <section class="card">
+            <h2>审核后写入房间记忆</h2>
+            <textarea id="room-fact" rows="5" maxlength="4000" placeholder="经审核、允许全房间召回的事实"></textarea>
+            <label>重要度 <input id="fact-importance" type="number" min="1" max="10" value="5" /></label>
+            <button id="add-fact">写入共享记忆</button>
+          </section>
+
+          <section class="card">
+            <h2>用量与输入限制</h2>
+            <label>单条最大字符数 <input id="max-message-chars" type="number" min="100" max="4000" /></label>
+            <label>窗口内消息数 <input id="messages-per-window" type="number" min="1" max="20" /></label>
+            <label>窗口秒数 <input id="window-seconds" type="number" min="1" max="300" /></label>
+            <button id="save-limits">保存限制</button>
+          </section>
+
+          <section class="card wide"><h2>访客与封禁</h2><div id="visitors" class="table"></div></section>
+          <section class="card wide"><h2>消息审核</h2><div id="messages" class="table"></div></section>
+          <section class="card wide"><h2>审计日志</h2><div id="audit" class="table"></div></section>
+        </div>
+        <p id="notice" role="status"></p>
+      </section>
+    </main>
+    <script src="/admin-assets/app.js" defer></script>
+  </body>
+</html>

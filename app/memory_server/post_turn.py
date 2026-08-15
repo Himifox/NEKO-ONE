@@ -1,0 +1,519 @@
+# -*- coding: utf-8 -*-
+# Copyright 2025-2026 Project N.E.K.O. Team
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Per-turn signals: the outbox op registration + the post-turn background
+task (signal-loop counter bump, repetition sniffing, check_feedback and the
+OFF-mode Stage-1 fallback). Registers the ``OP_POST_TURN_SIGNALS`` outbox
+handler at import time.
+"""
+
+import asyncio
+from functools import wraps
+
+from config import (
+    IGNORED_REINFORCEMENT_DELTA,
+    USER_CONFIRM_DELTA,
+    USER_REBUT_DELTA,
+)
+from memory.event_log import (
+    EVIDENCE_SOURCE_USER_CONFIRM,
+    EVIDENCE_SOURCE_USER_IGNORE,
+    EVIDENCE_SOURCE_USER_REBUT,
+)
+from memory.outbox import OP_POST_TURN_SIGNALS
+
+from . import gates, locale_state, outbox_infra, runtime, signal_extraction
+from ._shared import logger
+from .rows import _extract_ai_response, _extract_user_messages
+
+
+def _with_language_context(func):
+    """Run one post-turn operation with its persisted task-local locale."""
+
+    @wraps(func)
+    async def wrapped(
+        *args,
+        language: str | None = None,
+        render_language: str | None = None,
+        **kwargs,
+    ):
+        from utils.language_utils import is_supported_language_code, language_context
+
+        if is_supported_language_code(language):
+            # Persist first, then render under the locale that actually won the
+            # causal-order check. A stale outbox item may carry a valid older
+            # language even though record_character_prompt_locale correctly
+            # refuses to replace a newer session locale.
+            effective_language = await _wait_for_signal_locale_persistence(
+                args[1],
+                language=language,
+                locale_order=kwargs.get("locale_order"),
+            )
+            with language_context(effective_language):
+                return await func(*args, language=language, **kwargs)
+
+        # A render locale is request-local replay context, not durable evidence.
+        # Keep ``language`` missing so no signal-side locale write is attempted;
+        # a newer durable character preference still wins over the recorded
+        # fallback when replay runs after a restart.
+        lanlan_name = args[1]
+        selected = await asyncio.to_thread(
+            locale_state.get_character_prompt_locale,
+            lanlan_name,
+        )
+        if not is_supported_language_code(selected):
+            selected = render_language
+        with language_context(selected):
+            return await func(*args, language=language, **kwargs)
+
+    return wrapped
+
+
+async def _spawn_outbox_post_turn_signals(
+    lanlan_name: str,
+    messages: list,
+    *,
+    language: str | None = None,
+    render_language: str | None = None,
+    locale_admission_order: int | None = None,
+) -> asyncio.Task:
+    """Register the per-turn signals background task in the outbox and spawn it.
+
+    "per-turn signals" = counter bump (for the batch loop's counting) + repetition
+    sniffing + check_feedback + OFF-mode Stage-1 fallback; see
+    ``_run_post_turn_signals``. The registered payload contains the whole turn's
+    conversation serialized via messages_to_dict, replayable at restart.
+    """
+    from .locale_state import (
+        PromptLocalePersistenceError,
+        allocate_character_prompt_locale_order,
+        reserve_character_prompt_locale_order,
+    )
+    from utils.cloudsave_runtime import MaintenanceModeError
+    from utils.language_utils import (
+        is_supported_language_code,
+        normalize_language_code,
+    )
+    from utils.llm_client import messages_to_dict
+
+    has_explicit_language = is_supported_language_code(language)
+    locale_order = None
+    if has_explicit_language:
+        if not isinstance(locale_admission_order, int) or isinstance(
+            locale_admission_order,
+            bool,
+        ):
+            locale_admission_order = allocate_character_prompt_locale_order(
+                lanlan_name,
+            )
+        try:
+            locale_order = await asyncio.to_thread(
+                reserve_character_prompt_locale_order,
+                lanlan_name,
+                order=locale_admission_order,
+            )
+        except (MaintenanceModeError, PromptLocalePersistenceError) as exc:
+            # The conversation rows may already be durable when a cloud operation
+            # closes the write fence or its sidecar commit is invalidated. Locale
+            # ordering is auxiliary metadata, so a late failure must not report the
+            # whole turn as failed and make the main server resend it. The durable
+            # outbox marker retries the reservation before any locale-bearing
+            # maintenance signal is allowed to complete.
+            logger.info(
+                "[PromptLocale] %s: reservation deferred while cloudsave is fenced: %s",
+                lanlan_name,
+                exc,
+            )
+    payload = {
+        'messages': messages_to_dict(messages),
+    }
+    if has_explicit_language:
+        if locale_order is not None:
+            payload['locale_order'] = locale_order
+        else:
+            payload['locale_order_deferred'] = True
+            payload['locale_admission_order'] = locale_admission_order
+        # Persist the locale with the work item: after a memory_server restart,
+        # replay must not re-resolve from a neutral process locale and switch
+        # the same conversation window back to English.
+        #
+        # Callers must pass the locale the client actually declared, NOT the
+        # value resolved for the in-flight request. Persisting a locale this
+        # process merely *guessed* would freeze that guess into outbox.ndjson:
+        # replay would keep reusing it even after the detection itself is fixed,
+        # whereas omitting the key lets replay re-resolve against the then-current
+        # process language (the pre-outbox behaviour).
+        payload['language'] = language
+    elif is_supported_language_code(render_language):
+        # Unlike the process-global fallback, this is explicit request context
+        # for the queued turn. Persist it separately so restart replay can render
+        # the same work without declaring or writing a character preference.
+        payload['render_language'] = normalize_language_code(
+            render_language,
+            format='full',
+        )
+    try:
+        op_id = await runtime.outbox.aappend_pending(lanlan_name, OP_POST_TURN_SIGNALS, payload)
+    except Exception as e:
+        # Outbox 写失败不能阻塞主流程，降级为一次性任务（与重构前行为一致）
+        logger.warning(
+            f"[Outbox] {lanlan_name}: append_pending 失败，降级为内存任务: "
+            f"{type(e).__name__}: {e}"
+        )
+        if has_explicit_language and locale_order is None:
+            operation = _run_post_turn_signals_after_locale_reservation(
+                messages,
+                lanlan_name,
+                language=language,
+                admission_order=locale_admission_order,
+                locale_only=not messages,
+            )
+        else:
+            operation = _run_post_turn_signals(
+                messages,
+                lanlan_name,
+                language=language,
+                render_language=payload.get('render_language'),
+                locale_order=locale_order,
+                locale_only=not messages,
+            )
+        return runtime._spawn_background_task(operation)
+    op = {'op_id': op_id, 'type': OP_POST_TURN_SIGNALS, 'payload': payload}
+    return runtime._spawn_background_task(outbox_infra._run_outbox_op(lanlan_name, op))
+
+
+async def _wait_for_character_prompt_locale_order(
+    lanlan_name: str,
+    *,
+    admission_order: int | None,
+) -> int:
+    """Wait until the deferred locale reservation is durably committed."""
+    from .locale_state import (
+        PromptLocaleInvalidatedError,
+        reserve_character_prompt_locale_order,
+    )
+    from utils.cloudsave_runtime import MaintenanceModeError
+
+    if not isinstance(admission_order, int) or isinstance(admission_order, bool):
+        # Legacy outbox rows predate admission-order persistence, so they must
+        # sort before every ordered turn. Allocating here would put a replayed
+        # old locale above the durable high-water mark and let it overwrite a
+        # newer session locale.
+        admission_order = 0
+    while True:
+        try:
+            return await asyncio.to_thread(
+                reserve_character_prompt_locale_order,
+                lanlan_name,
+                order=admission_order,
+            )
+        except (MaintenanceModeError, PromptLocaleInvalidatedError):
+            await asyncio.sleep(0.25)
+
+
+async def _run_post_turn_signals_after_locale_reservation(
+    messages: list,
+    lanlan_name: str,
+    *,
+    language: str | None = None,
+    admission_order: int | None,
+    locale_only: bool = False,
+):
+    locale_order = await _wait_for_character_prompt_locale_order(
+        lanlan_name,
+        admission_order=admission_order,
+    )
+    return await _run_post_turn_signals(
+        messages,
+        lanlan_name,
+        language=language,
+        locale_order=locale_order,
+        locale_only=locale_only,
+    )
+
+
+async def _wait_for_signal_locale_persistence(
+    lanlan_name: str,
+    *,
+    language: str | None,
+    locale_order: int | None,
+) -> str | None:
+    """Return the effective locale after this ordered write is durable."""
+    from .locale_state import PromptLocaleInvalidatedError
+    from utils.cloudsave_runtime import MaintenanceModeError
+
+    while True:
+        try:
+            return await asyncio.to_thread(
+                signal_extraction._signal_check_persist_locale,
+                lanlan_name,
+                language=language,
+                locale_order=locale_order,
+            )
+        except (MaintenanceModeError, PromptLocaleInvalidatedError):
+            await asyncio.sleep(0.25)
+
+
+async def _resolve_corrections_with_subject_locale(lanlan_name: str) -> int:
+    return await runtime.persona_manager.resolve_corrections(
+        lanlan_name,
+        prompt_locale_resolver=lambda subject: (
+            locale_state.aget_subject_prompt_locale(lanlan_name, subject)
+        ),
+    )
+
+
+@_with_language_context
+async def _run_post_turn_signals(
+    messages: list,
+    lanlan_name: str,
+    *,
+    language: str | None = None,
+    locale_order: int | None = None,
+    locale_only: bool = False,
+):
+    """Background async: per-turn signals at every turn end. Failures are skipped silently.
+
+    Responsibilities (in step order):
+      0. counter bump — +1 to ``_periodic_signal_extraction_loop``'s turn counter,
+         so the batch loop triggers Stage-1+Stage-2 at 10 accumulated turns
+      1. OFF-mode Stage-1 fallback — when powerful_memory is off the batch loop is
+         fully stopped, and per-turn ``fact_store.extract_facts`` is the only
+         fallback for fact extraction (not run in ON-mode; left to the batch loop)
+      2. repetition sniffing — local BM25, §2.6 5h-window suppress
+      3. check_feedback — detects user feedback on surfaced reflections (LLM runs
+         only when surfaced has pending entries) + NEGATIVE_KEYWORDS hits trigger
+         the LLM target check
+
+    Naming history — this function was introduced in PR-1 (RFC #928) as
+    ``_extract_facts_and_check_feedback``, when step 1 still unconditionally ran
+    ``fact_store.extract_facts`` (Stage-1) every turn. RFC §3.4.3 verbatim: "do
+    **not** run extract_facts every turn on the conversation hot path — too
+    expensive. Move to background scheduling" — PR #1346 split ON-mode Stage-1 out
+    into ``_periodic_signal_extraction_loop``, step 1 degraded to the OFF-mode
+    fallback, and this follow-up renamed the symbols (including the outbox spawn
+    helper / handler / op constant) to ``post_turn_signals`` to match the actual
+    semantics. The **string value** of ``OP_POST_TURN_SIGNALS`` remains
+    ``"extract_facts"`` (the outbox.ndjson wire format is immutable).
+    """
+    user_msgs = _extract_user_messages(messages)
+
+    # 本轮算入 signal-extraction 触发计数器（RFC §3.4.3）—— batch loop
+    # 靠这个 counter 在累积 N 轮时触发 _signal_check_one。
+    # 只在 user 有发声时 bump，**故意不**算 AI-only / proactive turn：
+    # path A 抽的是 user_observation fact，没 user 发声就抽不出料；
+    # path B 是 piggyback A 的 trigger 跑（不独立调度），也跟着只在 user
+    # 有 engagement 的窗口里跑。这是 product thesis 的"90% 没心没肺"——
+    # AI 自言自语 + user 不搭理的内容是廉价层，不该自动当 fact 沉淀污染
+    # memory；只有 user 印证过的才升级到神明降临层。
+    if locale_only:
+        return
+    if user_msgs:
+        try:
+            signal_extraction._signal_check_record_turn(lanlan_name)
+        except Exception as e:
+            # Best-effort counter bump; a failure here only delays the next
+            # signal-extraction cycle — not worth interrupting conversation flow.
+            logger.debug(f"[MemoryServer] signal-check turn counter 更新失败: {e}")
+
+    # 强力记忆开关——本轮 evidence-related 路径的 gate（promote/negative-keyword/
+    # corrections）。check_feedback 自身仍跑（主动搭话回应是核心 channel）。
+    powerful_enabled = await gates._ais_powerful_memory_enabled()
+
+    # Step 1 — per-turn Stage-1 fact extraction：只在 powerful_memory **关闭**
+    # 时跑（OFF-mode baseline fallback）。ON-mode 下 fact extraction 完全交给
+    # ``_periodic_signal_extraction_loop`` 跑 batch Stage-1+Stage-2（RFC §3.4.3
+    # 设计意图："不在对话主路径上每轮运行 extract_facts——太贵。改为背景调度"，
+    # batch 路径带上下文、质量更高、cost 更低）。
+    #
+    # OFF-mode 下 batch loop 整段停（见 _periodic_signal_extraction_loop 的
+    # `if not powerful_enabled: continue` 分支），如果这里也跳过，facts.json
+    # 就完全无路径更新——这是 chatgpt-codex-connector PR #1346 抓到的 regression。
+    # OFF-mode 保留 legacy per-turn Stage-1，let user 仍能拿到基础 fact 累积。
+    if not powerful_enabled:
+        try:
+            await runtime.fact_store.extract_facts(messages, lanlan_name)
+        except Exception as e:
+            logger.warning(f"[MemoryServer] OFF-mode 事实提取失败: {e}")
+
+    try:
+        # 2. 全局复读嗅探：扫描 AI 回复中是否重复提及 persona 条目 +
+        #    confirmed reflection（§2.6 5h 窗口 suppress 机制，两者正交）。
+        #    本地 BM25，无 LLM 调用，per-turn 跑是必要的——5h 窗口逻辑
+        #    依赖即时更新。
+        ai_response = _extract_ai_response(messages)
+        if ai_response:
+            await runtime.persona_manager.arecord_mentions(lanlan_name, ai_response)
+            await runtime.reflection_engine.arecord_mentions(lanlan_name, ai_response)
+    except Exception as e:
+        logger.warning(f"[MemoryServer] 复读嗅探失败: {e}")
+
+    try:
+        # 3. 检查用户对之前 surfaced 反思的反馈 + 派 evidence 信号
+        surfaced = await runtime.reflection_engine.aload_surfaced(lanlan_name)
+        pending_surfaced = [s for s in surfaced if s.get('feedback') is None]
+        if pending_surfaced and user_msgs:
+            feedbacks = await runtime.reflection_engine.check_feedback(lanlan_name, user_msgs)
+            if feedbacks is not None:
+                # Build id→feedback map for quick lookup
+                fb_map: dict[str, str] = {}
+                for fb in feedbacks:
+                    if not isinstance(fb, dict):
+                        continue
+                    rid = fb.get('reflection_id')
+                    kind = fb.get('feedback')
+                    if rid and kind in ('confirmed', 'denied', 'ignored'):
+                        fb_map[rid] = kind
+
+                # RFC §3.1.5: confirmed → reinforcement += 1; denied →
+                # disputation += 1; ignored → reinforcement += -0.2.
+                # pending→confirmed/denied state transitions happen in the
+                # score-driven auto_promote_stale path (not here).
+                #
+                # Retry semantics caveat: `check_feedback` above already
+                # persisted the feedback decision into `surfaced.json`, so
+                # a downstream aapply_signal / areject_promotion failure
+                # here won't be re-tried next cycle (surfaced.feedback !=
+                # None skips the row). PR-1 accepts best-effort with WARN
+                # logs; a follow-up would move these side-effects behind an
+                # outbox op so they survive transient failures. Tracked for
+                # PR-2+ decay/archive work.
+                for rid, kind in fb_map.items():
+                    if kind == 'confirmed':
+                        delta = {'reinforcement': USER_CONFIRM_DELTA}
+                        source = EVIDENCE_SOURCE_USER_CONFIRM
+                    elif kind == 'denied':
+                        delta = {'disputation': USER_REBUT_DELTA}
+                        source = EVIDENCE_SOURCE_USER_REBUT
+                    else:  # ignored
+                        delta = {'reinforcement': IGNORED_REINFORCEMENT_DELTA}
+                        source = EVIDENCE_SOURCE_USER_IGNORE
+                    try:
+                        await runtime.reflection_engine.aapply_signal(
+                            lanlan_name, rid, delta, source=source,
+                        )
+                    except Exception as e:
+                        # Signal lost this turn (see caveat above). Warn so
+                        # operators can spot transient LLM / disk issues.
+                        logger.warning(
+                            f"[MemoryServer] {lanlan_name}: aapply_signal "
+                            f"({rid}, {kind}) 失败，此次反馈 signal 已丢失: {e}"
+                        )
+
+                # denied 仍然走 areject_promotion 做 status transition（保留
+                # 既有 surfaced 登记 + reflection status='denied' 行为）
+                for rid, kind in fb_map.items():
+                    if kind == 'denied':
+                        try:
+                            await runtime.reflection_engine.areject_promotion(lanlan_name, rid)
+                        except Exception as e:
+                            logger.warning(
+                                f"[MemoryServer] areject_promotion 失败 "
+                                f"{rid}，此次 denial 未转入 status: {e}"
+                            )
+
+                # 让后续扫描把 pending→confirmed 推进。强力记忆决定走哪条：
+                #   开 → score-driven + merge LLM
+                #   关 → time-driven (14 天 confirm + 14 天 promote, 零 LLM)
+                try:
+                    if powerful_enabled:
+                        await runtime.reflection_engine.aauto_promote_stale(lanlan_name)
+                    else:
+                        await runtime.reflection_engine.aauto_promote_time_driven(lanlan_name)
+                except Exception as e:
+                    logger.debug(
+                        f"[MemoryServer] {lanlan_name}: auto_promote 失败: {e}"
+                    )
+    except Exception as e:
+        logger.warning(f"[MemoryServer] 反馈检查失败: {e}")
+
+    if powerful_enabled:
+        try:
+            # 3.5 负面关键词 hook（§3.4.5）——命中就派个异步小 LLM 任务
+            # 强力记忆关 → 整段不跑（这是 evidence-RFC 引入的额外 LLM 路径）
+            if user_msgs:
+                from utils.language_utils import get_global_language_full
+                runtime._spawn_background_task(
+                    signal_extraction._amaybe_trigger_negative_keyword_hook(
+                        lanlan_name, user_msgs, get_global_language_full(),
+                    )
+                )
+        except Exception as e:
+            logger.debug(f"[MemoryServer] 负面关键词 hook 派发失败: {e}")
+
+        try:
+            # 4. 审视矛盾队列（如果有 pending corrections）
+            # 强力记忆关 → 不跑 LLM 批量审视（corrections queue 累积，等重开消化）
+            resolved = await _resolve_corrections_with_subject_locale(lanlan_name)
+            if resolved:
+                logger.info(f"[MemoryServer] {lanlan_name}: 审视了 {resolved} 条 persona 矛盾")
+        except Exception as e:
+            logger.warning(f"[MemoryServer] 矛盾审视失败: {e}")
+
+
+async def _outbox_post_turn_signals_handler(lanlan_name: str, payload: dict) -> None:
+    """Outbox handler for OP_POST_TURN_SIGNALS: restore messages from the payload and run
+    ``_run_post_turn_signals``.
+
+    Sources of idempotency:
+      - fact_store.extract_facts (OFF-mode fallback) dedups facts internally via
+        SHA-256; repeated extraction produces no duplicate facts.
+      - arecord_mentions is a monotonically accumulating counter; replay slightly
+        inflates mention counts (acceptable at-least-once semantics).
+      - check_feedback naturally catches up next time — a reflection's
+        surfaced/feedback lists are persisted.
+      - resolve_corrections protects idempotency internally via processed_indices.
+    """
+    from utils.llm_client import messages_from_dict
+
+    from utils.language_utils import is_supported_language_code
+
+    raw = payload.get('messages') or []
+    messages = messages_from_dict(raw) if raw else []
+    language = payload.get('language')
+    render_language = (
+        payload.get('render_language')
+        if not is_supported_language_code(language)
+        else None
+    )
+    if not is_supported_language_code(render_language):
+        render_language = None
+    if not messages and not is_supported_language_code(language):
+        return
+    if payload.get('locale_order_deferred'):
+        kwargs = {
+            'language': language,
+            'admission_order': payload.get('locale_admission_order'),
+        }
+        if not messages:
+            kwargs['locale_only'] = True
+        await _run_post_turn_signals_after_locale_reservation(
+            messages,
+            lanlan_name,
+            **kwargs,
+        )
+        return
+    kwargs = {
+        'language': language,
+        'locale_order': payload.get('locale_order'),
+    }
+    if render_language is not None:
+        kwargs['render_language'] = render_language
+    if not messages:
+        kwargs['locale_only'] = True
+    await _run_post_turn_signals(messages, lanlan_name, **kwargs)
+
+
+outbox_infra.register_outbox_handler(OP_POST_TURN_SIGNALS, _outbox_post_turn_signals_handler)

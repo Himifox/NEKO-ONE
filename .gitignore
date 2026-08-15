@@ -1,0 +1,55 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.public.example
+config/api.py
+config/*_key.key
+config/*.json
+!config/api_providers.json
+
+# Public-room persistent and private data
+/var/
+/data/
+/logs/
+/memory/store/*
+!/memory/store/.gitkeep
+/ssl/
+
+# Python environments, caches, and packages
+/.venv/
+/.uv-cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated embedding models
+/data/embedding_models/
+
+# Build output
+/build/
+/dist/
+node_modules/
+*.cache
+*.tsbuildinfo
+
+# Editors and operating systems
+.vscode/
+.idea/
+.cursor/
+.codex/
+*.code-workspace
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+/tmp/
+/output/
