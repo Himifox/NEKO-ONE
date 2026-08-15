@@ -18,7 +18,7 @@
 - `memory-service` 保持独立进程，只允许内网访问；
 - `tts-worker` 可按资源情况独立，也可先以内嵌适配器运行；
 - Caddy/Nginx 是唯一公网入口，公网只开放 443；
-- 单实例使用 SQLite/文件存储，出现多实例需求后再引入 PostgreSQL、Redis 和对象存储。
+- 单实例使用 PostgreSQL/受保护文件存储；出现多实例需求后再引入 Redis、fencing token 和对象存储。
 
 模块边界从第一天写清楚，但第一版不为“看起来像微服务”支付分布式事务和队列运维成本。
 
@@ -251,7 +251,7 @@ GENERATING --取消/超时--------> FINALIZING
 - 一个有界命令队列；
 - 一个活动 generation；
 - 一个 RoomDirector 定时器；
-- 一个 SQLite 写事务入口；
+- 一个 PostgreSQL 写事务入口；
 - 一个递增 `room_seq` 分配器。
 
 即使第一版只有一个房间，也保留 `room_id` 维度，避免数据表和协议日后破坏性迁移。
@@ -516,7 +516,7 @@ Director 只有同时满足以下条件才可创建主动 turn：
 
 ## 10. 数据模型
 
-第一版应用数据库建议使用 SQLite WAL，所有 schema 通过迁移管理。核心表如下：
+第一版公共业务数据库使用 PostgreSQL，生产不得静默回退 SQLite；所有 schema 通过版本化迁移管理。核心表如下：
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
@@ -549,7 +549,7 @@ Director 只有同时满足以下条件才可创建主动 turn：
 - `POST /api/v1/ws-ticket`：可选，签发短期连接票据；
 - `GET /api/v1/media/{media_id}`：受控读取 TTS 资源；
 - `GET /health/live`：进程存活；
-- `GET /health/ready`：验证 SQLite 完整性、可回滚写入、磁盘余量、主房间和 LLM/Persona 配置；Memory/TTS/Live2D 只报告降级。Nginx 仅允许同机代理/监控访问详细信息。
+- `GET /health/ready`：验证 PostgreSQL 连接、schema 版本、可回滚写入、本地磁盘余量、主房间和 LLM/Persona 配置；Memory/TTS/Live2D 只报告降级。Nginx 仅允许同机代理/监控访问详细信息。
 
 管理 API 使用 `/api/v1/admin/*`。第一版已经覆盖 Persona、记忆审核、封禁、额度、暂停/只读/主动主持控制、取消当前 generation、数据保留/清理和审计查询；模型/TTS 配置仍保留在私有服务端配置目录。不得在同一路由中仅靠前端隐藏按钮区分管理员能力。
 
@@ -650,7 +650,7 @@ Markdown 使用严格白名单并禁用原始 HTML；外链添加安全属性；
 
 ### 16.2 备份
 
-- SQLite 使用在线一致性备份 API，不直接复制正在写入的数据库文件；
+- PostgreSQL 使用自定义格式 `pg_dump`，恢复到新建空库后比对 schema、逐表数量和房间序号；
 - Memory 服务按其原子写入/日志契约制作一致性快照；
 - 每日全量 + 更短周期增量或快照；
 - 至少保留一份异机/异区加密副本；

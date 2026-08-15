@@ -27,7 +27,7 @@ Memory 是公共房间的弱依赖：systemd 使用 `Wants` 而不是 `Requires`
 
 OpenResty 对超出速率或连接数的请求返回 429。应用仍保留访客级消息长度、窗口频率、WebSocket Origin、Cookie 身份和幂等校验；代理限制不能替代业务限制。
 
-详细 readiness 只允许同机监控或负载均衡器从回环地址访问，OpenResty 对公网请求返回 403；公开 liveness 只证明进程存活，不返回依赖状态。readiness 会执行 SQLite `quick_check`、最长 2 秒等待的可回滚写入，并检查最低磁盘余量、主房间及 LLM/Persona 配置。响应只公开布尔状态和错误类别，不返回磁盘容量、模型地址、Memory 地址或凭据。
+详细 readiness 只允许同机监控或负载均衡器从回环地址访问，OpenResty 对公网请求返回 403；公开 liveness 只证明进程存活，不返回依赖状态。readiness 会验证 PostgreSQL 连接与 schema 版本、最长 2 秒连接等待下的可回滚写入，并检查最低本地磁盘余量、主房间及 LLM/Persona 配置。响应只公开布尔状态和错误类别，不返回 DSN、磁盘容量、模型地址、Memory 地址或凭据。
 
 ## 浏览器安全策略
 
@@ -53,7 +53,7 @@ OpenResty 对超出速率或连接数的请求返回 429。应用仍保留访客
 | Memory 写入 | 已提交文字不回滚 | 默认最多 3 次指数间隔重试；最终失败记录降级状态 |
 | TTS | 已提交文字不回滚，广播 `speech.failed` | 默认最多 2 次重试；下一轮再次调用 |
 
-只有 SQLite 完整性/可写性/磁盘余量、主房间存在以及 LLM/Persona 配置属于阻断就绪的核心条件。Memory、TTS 与 Live2D 是可降级能力：它们会出现在详细探针中，但其单独故障不会让纯文本公共房间退出服务。
+只有 PostgreSQL 连接/schema/可写性、本地磁盘余量、主房间存在以及 LLM/Persona 配置属于阻断就绪的核心条件。Memory、TTS 与 Live2D 是可降级能力：它们会出现在详细探针中，但其单独故障不会让纯文本公共房间退出服务。
 
 管理后台必须先通过 OpenResty Basic Auth，再通过应用密码、签名 Cookie 和
 CSRF 校验。后台只显示 `ready`、`degraded`、`disabled` 或 `unknown`、错误类型和连续失败次数，不返回供应商响应、Key、Memory 地址或聊天正文。

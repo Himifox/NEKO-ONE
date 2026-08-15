@@ -51,7 +51,7 @@ NEKO-ONE 不再延续原项目“桌面宠物 + 直播 + 插件 + Agent + 游戏
 - Live2D、情绪标签和共享 TTS；
 - Recent → Facts → Reflections → Persona 记忆链路；
 - Persona、公共事实、访客记忆和管理审核；
-- SQLite/本地文件单实例持久化；
+- PostgreSQL/本地文件单实例持久化；
 - 公网反向代理、HTTPS/WSS 和私有管理入口。
 
 提取并重写：
@@ -94,7 +94,7 @@ NEKO-ONE 不再延续原项目“桌面宠物 + 直播 + 插件 + Agent + 游戏
 - [x] 公网边界、安全响应头、请求体和连接上限已落地；
 - [x] 数据保留、自动清理、备份与隔离恢复工具已落地；
 - [ ] 真实 LLM、Memory 和至少一个 TTS 完成端到端验收；
-- [x] 10、25、50 人各运行 30 分钟并保存容量证据；
+- [ ] 在最终 PostgreSQL 代码上让 10、25、50 人各运行 30 分钟并保存容量证据；
 - [ ] 50 人档位完成至少 24 小时稳定性运行；
 - [ ] 在独立 Debian 主机完成一次备份恢复演练；
 - [ ] 生产 Live2D 模型、动作、字体和公开音色取得明确授权。
@@ -168,17 +168,17 @@ NEKO-ONE 不再延续原项目“桌面宠物 + 直播 + 插件 + Agent + 游戏
 
 - 房间创建、关闭、暂停、归档和容量配置；
 - 统一 Persona 下的房间局部上下文；
-- PostgreSQL 持久化、Redis 短期状态和对象存储共享音频；
+- Redis 短期状态、fencing token 和对象存储共享音频；
 - 房间 owner lease、单调 fencing token 和写入校验；
 - 可独立伸缩的 Conversation/TTS worker；
-- 从 SQLite 到 PostgreSQL 的校验式迁移和可执行回滚。
+- PostgreSQL 写入侧 fencing 校验与租约切换演练。
 
 ### 7.3 退出条件
 
 - 主实例生成中退出时，接管不会产生双回复；
 - 故障转移和重放不会产生重复 `room_seq`；
 - 多实例下仍维持房间、访客和 Persona 三层记忆隔离；
-- 迁移结果通过数量、摘要和语义抽样校验。
+- owner 切换后的旧实例写入被 PostgreSQL fencing 校验拒绝。
 
 ## 8. 第五阶段：1.0 产品化
 

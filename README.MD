@@ -66,12 +66,13 @@ flowchart LR
     HUB --> QUEUE --> DIRECTOR --> ENGINE
     ENGINE --> AVATAR
     ENGINE --> SPEECH
+    API -->|"业务数据"| POSTGRES["PostgreSQL :5432"]
     ENGINE -->|"仅回环地址"| MEMORY["Memory Server"]
     ENGINE -->|"服务端密钥"| LLM["LLM Provider"]
     SPEECH -->|"服务端密钥"| TTS["TTS Provider"]
 ```
 
-第一版采用单实例、单主写入者和 SQLite。这个约束让消息顺序、模型输出、记忆写入和 TTS 广播保持确定；需要水平扩容时，再引入 Redis、PostgreSQL 与对象存储。
+第一版采用单实例、单主写入者和 PostgreSQL。这个约束让消息顺序、模型输出、记忆写入和 TTS 广播保持确定；需要水平扩容时，再引入 Redis、fencing token 与对象存储。
 
 ## 快速开始
 
@@ -81,6 +82,7 @@ flowchart LR
 
 - Python **3.11**；
 - [uv](https://docs.astral.sh/uv/)；
+- PostgreSQL **15+**（服务端与 `pg_dump` / `pg_restore` 客户端工具）；
 - 已配置的私有 LLM 参数；
 - 可选的 TTS 参数。
 
@@ -95,6 +97,7 @@ Copy-Item .env.public.example .env.public
 
 ```dotenv
 NEKO_PUBLIC_ALLOWED_ORIGINS=http://127.0.0.1:48911
+NEKO_PUBLIC_DATABASE_URL=postgresql://neko_public:replace-me@127.0.0.1:5432/neko_public
 NEKO_PUBLIC_SESSION_SECRET=replace-with-at-least-48-random-characters
 NEKO_PUBLIC_ADMIN_PASSWORD=replace-with-a-long-unique-admin-password
 ```
@@ -123,7 +126,7 @@ uv run --env-file .env.public neko-public
 - 就绪检查：<http://127.0.0.1:48911/api/v1/health/ready>
 
 如果 `NEKO_PUBLIC_ADMIN_PASSWORD` 少于 12 位或未设置，管理 API 会保持禁用。
-就绪检查会实际验证 SQLite 完整性、可写性、最低磁盘余量和 LLM/Persona
+就绪检查会实际验证 PostgreSQL 连接、schema 版本、可回滚写入、最低磁盘余量和 LLM/Persona
 配置；Memory、TTS 与 Live2D 作为可降级能力单独报告。生产 OpenResty 只允许
 本机监控访问详细就绪结果，公网只保留不含依赖细节的存活检查。
 
@@ -177,6 +180,7 @@ NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向�
 | --- | --- | --- |
 | `443/tcp` | 现有 1Panel OpenResty HTTPS / WSS | **是** |
 | `127.0.0.1:48911` | 公共房间 API | 否 |
+| `127.0.0.1:5432` | PostgreSQL 公共业务数据库 | 否 |
 | Memory Server 端口 | 长期记忆服务 | 否 |
 | LLM / TTS 配置 | 供应商凭据 | 否 |
 
@@ -188,8 +192,17 @@ NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向�
 
 所有 Python 验证均通过 `uv` 运行：
 
+以下数据库验证会永久清空目标库。只能使用名称包含 `test`、`verify` 或 `ci` 的
+专用数据库，并显式设置 `NEKO_VERIFY_ALLOW_DATABASE_RESET=1`；严禁使用生产 DSN。
+备份恢复验证还需要一个独立的空恢复库。完整 Debian 命令见
+[部署说明](deploy/README.md)。
+
 ```powershell
+$env:NEKO_PUBLIC_DATABASE_URL = "postgresql://neko_verify:...@127.0.0.1:5432/neko_verify"
+$env:NEKO_POSTGRES_RESTORE_URL = "postgresql://neko_verify:...@127.0.0.1:5432/neko_restore_verify"
+$env:NEKO_VERIFY_ALLOW_DATABASE_RESET = "1"
 uv run --locked python scripts/verify_public_room.py
+uv run --locked python scripts/verify_postgres_migration.py
 uv run --locked python scripts/check_public_boundary.py
 uv run --locked python scripts/verify_deployment_security.py
 uv run --locked python scripts/verify_room_capacity.py
@@ -201,7 +214,7 @@ node --check frontend/public-room/live2d.js
 node --check frontend/public-admin/app.js
 ```
 
-`verify_public_room.py` 使用假的模型、记忆和 TTS 实现，不会调用真实供应商或污染正式记忆。它覆盖多人连接、消息序号、幂等发送、断线续传、管理审核、封禁、限额、应急控制、数据清理、过期回放重置，以及 LLM 超时、Memory 故障和 TTS 失败后的降级与恢复。`verify_room_capacity.py` 进一步验证 10/25/50 人并发、严格事件顺序、单 generation、慢客户端隔离和任务回收；长时命令及门槛见[容量与稳定性运维手册](docs/operations/capacity-and-soak.md)。`verify_backup_restore.py` 覆盖活动 SQLite 在线备份、清单校验、隔离恢复、损坏和路径逃逸拒绝；生产加密与异机演练见[备份恢复手册](docs/operations/backup-and-restore.md)。
+`verify_public_room.py` 使用假的模型、记忆和 TTS 实现，不会调用真实供应商或污染正式记忆。它覆盖多人连接、消息序号、幂等发送、断线续传、管理审核、封禁、限额、应急控制、数据清理、过期回放重置，以及 LLM 超时、Memory 故障和 TTS 失败后的降级与恢复。`verify_room_capacity.py` 进一步验证 10/25/50 人并发、严格事件顺序、单 generation、慢客户端隔离和任务回收；长时命令及门槛见[容量与稳定性运维手册](docs/operations/capacity-and-soak.md)。`verify_backup_restore.py` 覆盖真实 `pg_dump`/`pg_restore`、Memory SQLite 在线备份、清单校验、隔离恢复、损坏和路径逃逸拒绝；生产加密与异机演练见[备份恢复手册](docs/operations/backup-and-restore.md)。
 
 `verify_memory_runtime.py` 会在隔离目录启动真实 Memory 应用，验证健康指纹、
 旧存储控制路由已消失，并确认不会重新创建任何云同步目录或状态文件。
@@ -227,7 +240,7 @@ Workshop、Steam 云包、声音克隆编辑器及对应提示词重新进入源
 
 ## 当前版本
 
-`v0.1` 是可部署的单房间基线，设计目标为 **10–50 人的小型公共房间**。当前使用游客身份、单实例和 SQLite；账号体系、多实例协调、直播平台接入以及公开声音配置不在第一版范围内。
+`v0.1` 是可部署的单房间基线，设计目标为 **10–50 人的小型公共房间**。当前使用游客身份、单实例和 PostgreSQL，不依赖 Redis；账号体系、多实例协调、直播平台接入以及公开声音配置不在第一版范围内。
 
 后续阶段、进入条件和验收门槛见 [产品路线图](docs/roadmap.md)。当前优先完成阶段 1 的真实供应商、公网安全、容量和备份恢复验收，再进入阶段 2。
 

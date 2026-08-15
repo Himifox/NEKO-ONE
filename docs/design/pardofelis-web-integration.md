@@ -14,7 +14,7 @@
 
 这带来三个直接约束：
 
-1. NEKO-ONE 是有 WebSocket、SQLite、Memory、LLM 和 TTS 的有状态服务，不能合并进 Vite 静态产物。
+1. NEKO-ONE 是有 WebSocket、PostgreSQL、Memory、LLM 和 TTS 的有状态服务，不能合并进 Vite 静态产物。
 2. `pardofelis-web` 每次部署会删除不属于其 `dist/` 的文件，不能把 NEKO 资源手工放进该站点目录。
 3. 现有 OpenResty 已占用公网 80/443，NEKO-ONE 不能再启动第二个公网 Nginx；它只监听回环地址，由现有 OpenResty 反向代理。
 

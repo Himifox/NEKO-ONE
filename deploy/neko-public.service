@@ -1,7 +1,8 @@
 [Unit]
 Description=NEKO public room web service
-After=network-online.target neko-memory.service
+After=network-online.target postgresql.service neko-memory.service
 Wants=network-online.target neko-memory.service
+Requires=postgresql.service
 
 [Service]
 Type=simple

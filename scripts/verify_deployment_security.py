@@ -59,6 +59,7 @@ def main() -> None:
     for token in (
         "NEKO_PUBLIC_HOST=127.0.0.1",
         "NEKO_PUBLIC_FORWARDED_ALLOW_IPS=127.0.0.1",
+        "NEKO_PUBLIC_DATABASE_URL=postgresql://",
         "NEKO_PUBLIC_ALLOW_MISSING_ORIGIN=0",
         "NEKO_PUBLIC_ALLOWED_ORIGINS=https://neko.pardofelis.wiki",
         "NEKO_PUBLIC_MAX_HTTP_BODY_BYTES=32768",
@@ -81,6 +82,7 @@ def main() -> None:
         "ProtectHome=true",
         "PrivateTmp=true",
         "CapabilityBoundingSet=",
+        "Requires=postgresql.service",
     ):
         assert token in unit, f"missing systemd sandbox control: {token}"
     assert "Requires=neko-memory.service" not in unit, (
