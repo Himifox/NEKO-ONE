@@ -403,6 +403,7 @@ Director 只有同时满足以下条件才可创建主动 turn：
 单连接事件：
 
 - `replay.reset`
+- `room.snapshot`
 - `chat.accepted`
 - `command.rejected`
 - `rate_limit.changed`
@@ -410,11 +411,12 @@ Director 只有同时满足以下条件才可创建主动 turn：
 
 ### 7.4 重连与续传
 
-- 客户端持久保存最后完整处理的 `room_seq`；
+- 页面存活期间，客户端保存最后完整处理的 `room_seq`；不得只跨页面持久化游标而不同时持久化对应消息，否则刷新后会形成空时间线；
+- 新页面以 `after_seq=0` 建立冷连接，由服务端原子返回最近可见消息与当前游标的 `room.snapshot`；
 - 重连请求携带 `after_seq`；
 - 服务端从事件保留窗口补发；
 - `session.ready` 返回 `oldest_available_seq`；客户端游标超出保留窗口或领先于服务器时，服务端发送 `replay.reset`，客户端清空本地去重状态后从新窗口回放；
-- 若 `after_seq` 太旧，发送新 `room.snapshot` 和最近消息窗口；
+- 若 `after_seq` 太旧、领先服务器或待补事件超过 1000 条，发送新的 `room.snapshot` 和最近消息窗口，避免截断回放；
 - 活动生成使用 `stream.snapshot` 返回当前完整临时文本和最后 `chunk_index`；
 - 客户端发现 `room_seq` 缺口时停止追加并请求重新同步；
 - 在线人数是快照数据，不参与历史回放。

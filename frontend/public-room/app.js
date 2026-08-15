@@ -4,7 +4,7 @@
   const state = {
     socket: null,
     reconnectAttempt: 0,
-    lastSeq: Number(localStorage.getItem("neko.room.main.lastSeq") || 0),
+    lastSeq: 0,
     rendered: new Set(),
     heartbeat: null,
     reconnectTimer: null,
@@ -16,6 +16,7 @@
     connectionState: "connecting",
     controls: { paused: false, read_only: false, proactive_enabled: false },
     stopped: false,
+    resyncing: false,
   };
 
   const timeline = document.getElementById("timeline");
@@ -125,16 +126,28 @@
   function updateLastSeq(seq) {
     if (!Number.isInteger(seq) || seq <= state.lastSeq) return;
     state.lastSeq = seq;
-    localStorage.setItem("neko.room.main.lastSeq", String(seq));
   }
 
   function resetReplay(seq) {
     state.lastSeq = Math.max(0, Number(seq) || 0);
-    localStorage.setItem("neko.room.main.lastSeq", String(state.lastSeq));
     state.rendered.clear();
     timeline.replaceChildren();
     streamRow.hidden = true;
     state.rawStream = "";
+  }
+
+  function requestFullResync() {
+    if (state.resyncing || state.stopped) return;
+    state.resyncing = true;
+    state.lastSeq = 0;
+    clearInterval(state.heartbeat);
+    queueState.textContent = "检测到时间线缺口，正在重新同步";
+    const socket = state.socket;
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.close(1012, "sequence_gap");
+    } else {
+      scheduleReconnect();
+    }
   }
 
   function renderMessage(message) {
@@ -161,12 +174,20 @@
 
   function handleEvent(event) {
     if (!event || typeof event.type !== "string") return;
-    if (Number.isInteger(event.room_seq)) updateLastSeq(event.room_seq);
+    if (Number.isInteger(event.room_seq) && event.type !== "room.snapshot") {
+      if (event.room_seq <= state.lastSeq) return;
+      if (event.room_seq !== state.lastSeq + 1) {
+        requestFullResync();
+        return;
+      }
+      updateLastSeq(event.room_seq);
+    }
     const payload = event.payload || {};
     switch (event.type) {
       case "session.ready":
         visitorName.textContent = event.visitor?.display_name || "游客";
         state.reconnectAttempt = 0;
+        state.resyncing = false;
         setConnection("已连接", "online");
         break;
       case "replay.reset":
@@ -175,12 +196,23 @@
           ? "旧记录已按保留策略清理，时间线已同步"
           : "本地进度已重置，正在同步房间";
         break;
+      case "room.snapshot":
+        resetReplay(payload.last_room_seq ?? event.room_seq);
+        (payload.messages || []).forEach(renderMessage);
+        applyRoomControls(payload.controls);
+        queueState.textContent = "房间时间线已同步";
+        break;
       case "message.created":
         renderMessage(payload);
         break;
       case "message.moderated": {
         const message = timeline.querySelector(`[data-message-id="${CSS.escape(payload.message_id || "")}"]`);
-        if (payload.status === "hidden") message?.remove();
+        if (payload.status === "hidden") {
+          message?.remove();
+          state.rendered.delete(payload.message_id);
+        } else if (payload.status === "visible" && payload.message) {
+          renderMessage(payload.message);
+        }
         break;
       }
       case "presence.updated":
@@ -344,10 +376,18 @@
     state.stopped = true;
     clearTimeout(state.reconnectTimer);
     clearInterval(state.heartbeat);
-    state.socket?.close(1000, "page_unload");
+    const socket = state.socket;
+    state.socket = null;
+    socket?.close(1000, "page_unload");
     state.audio?.pause();
     globalThis.NekoPublicAvatar?.setSpeaking?.(false);
-  }, { once: true });
+  });
+
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    state.stopped = false;
+    connect();
+  });
 
   updateSoundButton();
   setConnection("连接中", "connecting");

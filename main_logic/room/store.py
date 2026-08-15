@@ -591,6 +591,52 @@ class RoomStore:
         )
         return snapshot
 
+    async def room_history_snapshot(
+        self, room_id: str, *, limit: int = 100
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._room_history_snapshot_sync, room_id, limit
+        )
+
+    def _room_history_snapshot_sync(
+        self, room_id: str, limit: int
+    ) -> dict[str, Any]:
+        with self._managed_connection() as connection:
+            connection.execute("BEGIN")
+            room = connection.execute(
+                "SELECT id, slug, status, last_seq FROM rooms WHERE id = ?",
+                (room_id,),
+            ).fetchone()
+            oldest = connection.execute(
+                "SELECT MIN(room_seq) FROM room_events WHERE room_id = ?",
+                (room_id,),
+            ).fetchone()[0]
+            rows = connection.execute(
+                """
+                SELECT * FROM messages
+                WHERE room_id = ? AND status = 'visible'
+                ORDER BY room_seq DESC LIMIT ?
+                """,
+                (room_id, max(1, min(limit, 200))),
+            ).fetchall()
+        if room is None:
+            return {
+                "id": room_id,
+                "slug": room_id,
+                "status": "missing",
+                "last_seq": 0,
+                "oldest_available_seq": 1,
+                "messages": [],
+            }
+        snapshot = dict(room)
+        snapshot["oldest_available_seq"] = (
+            int(oldest) if oldest is not None else int(room["last_seq"]) + 1
+        )
+        snapshot["messages"] = [
+            self._row_to_message(row).as_payload() for row in reversed(rows)
+        ]
+        return snapshot
+
     async def list_stale_visitors(
         self, before: str, *, limit: int = 100
     ) -> list[Visitor]:
@@ -871,7 +917,7 @@ class RoomStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT room_id FROM messages WHERE id = ?", (message_id,)
+                "SELECT * FROM messages WHERE id = ?", (message_id,)
             ).fetchone()
             if row is None:
                 connection.rollback()
@@ -879,13 +925,18 @@ class RoomStore:
             connection.execute(
                 "UPDATE messages SET status = ? WHERE id = ?", (status, message_id)
             )
+            message = self._message_by_id_on(connection, message_id).as_payload()
             seq = self._next_seq_on(connection, row["room_id"])
             event = self._insert_event_on(
                 connection,
                 room_id=row["room_id"],
                 room_seq=seq,
                 event_type="message.moderated",
-                payload={"message_id": message_id, "status": status},
+                payload={
+                    "message_id": message_id,
+                    "status": status,
+                    "message": message if status == "visible" else None,
+                },
             )
             self._insert_audit_on(
                 connection, actor_id, "message.moderate", "message", message_id,

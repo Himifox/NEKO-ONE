@@ -95,6 +95,7 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
                 }
             )
             replay_from = max(0, room["oldest_available_seq"] - 1)
+            send_snapshot = after_seq == 0 and room["last_seq"] > 0
             if after_seq < replay_from or after_seq > room["last_seq"]:
                 await bootstrap_send(
                     {
@@ -112,7 +113,42 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
                         },
                     }
                 )
-                after_seq = replay_from
+                send_snapshot = True
+            elif room["last_seq"] - after_seq > 1000:
+                await bootstrap_send(
+                    {
+                        "type": "replay.reset",
+                        "server_time": utc_now(),
+                        "payload": {
+                            "reason": "replay_window_exceeded",
+                            "requested_after_seq": after_seq,
+                            "replay_from_seq": room["last_seq"],
+                            "last_room_seq": room["last_seq"],
+                        },
+                    }
+                )
+                send_snapshot = True
+            if send_snapshot:
+                history = await service.store.room_history_snapshot(
+                    room_id, limit=100
+                )
+                await bootstrap_send(
+                    {
+                        "type": "room.snapshot",
+                        "room_seq": history["last_seq"],
+                        "server_time": utc_now(),
+                        "payload": {
+                            "room_id": room_id,
+                            "last_room_seq": history["last_seq"],
+                            "oldest_available_seq": history[
+                                "oldest_available_seq"
+                            ],
+                            "messages": history["messages"],
+                            "controls": dict(service.controls),
+                        },
+                    }
+                )
+                after_seq = history["last_seq"]
             missed = await service.store.list_events(room_id, after_seq, limit=1000)
             for event in missed:
                 await bootstrap_send(event)

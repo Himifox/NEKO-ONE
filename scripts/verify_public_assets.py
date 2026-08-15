@@ -128,7 +128,12 @@ def main() -> None:
         'url.origin !== location.origin',
         'url.pathname.startsWith("/speech-assets/")',
         'window.addEventListener("pagehide"',
+        'window.addEventListener("pageshow"',
         "state.socket !== socket",
+        'case "room.snapshot"',
+        "state.rendered.delete(payload.message_id)",
+        "event.room_seq !== state.lastSeq + 1",
+        'socket.close(1012, "sequence_gap")',
     ):
         assert token in public_script, f"missing public client lifecycle guard: {token}"
     environment = (ROOT / ".env.public.example").read_text("utf-8")

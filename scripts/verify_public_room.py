@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import sqlite3
 import sys
 import tempfile
 import time
+from contextlib import closing
 from pathlib import Path
 
 
@@ -177,6 +179,17 @@ def main() -> None:
 
             history = client.get("/api/v1/rooms/main/messages").json()["messages"]
             assert [message["content"] for message in history] == ["NEKO 你好", "你好"]
+
+            with client.websocket_connect("/ws/rooms/main?after_seq=0") as cold_start:
+                assert cold_start.receive_json()["type"] == "session.ready"
+                snapshot = cold_start.receive_json()
+                assert snapshot["type"] == "room.snapshot"
+                assert snapshot["room_seq"] == 3
+                assert [
+                    message["content"] for message in snapshot["payload"]["messages"]
+                ] == ["NEKO 你好", "你好"]
+                assert snapshot["payload"]["last_room_seq"] == 3
+                assert cold_start.receive_json()["type"] == "presence.updated"
 
             with client.websocket_connect("/ws/rooms/main?after_seq=1") as reconnected:
                 assert reconnected.receive_json()["type"] == "session.ready"
@@ -545,6 +558,22 @@ def main() -> None:
                 "messages"
             ]
             assert assistant_id in {message["id"] for message in restored_history}
+            with closing(sqlite3.connect(data_dir / "public-room.db")) as connection:
+                moderation_payloads = [
+                    json.loads(row[0])
+                    for row in connection.execute(
+                        """
+                        SELECT payload_json FROM room_events
+                        WHERE type = 'message.moderated' AND payload_json LIKE ?
+                        ORDER BY room_seq DESC LIMIT 2
+                        """,
+                        (f'%"message_id": "{assistant_id}"%',),
+                    ).fetchall()
+                ]
+            assert moderation_payloads[1]["status"] == "hidden"
+            assert moderation_payloads[1]["message"] is None
+            assert moderation_payloads[0]["status"] == "visible"
+            assert moderation_payloads[0]["message"]["id"] == assistant_id
             visitor_id = session.json()["visitor"]["id"]
             banned = client.put(
                 f"/api/v1/admin/visitors/{visitor_id}/status",
@@ -688,6 +717,10 @@ def main() -> None:
                     reset["payload"]["replay_from_seq"]
                     == cleaned_room["last_seq"]
                 )
+                snapshot = reset_ws.receive_json()
+                assert snapshot["type"] == "room.snapshot"
+                assert snapshot["room_seq"] == cleaned_room["last_seq"]
+                assert snapshot["payload"]["messages"] == []
                 assert reset_ws.receive_json()["type"] == "presence.updated"
 
         async def verify_controls_after_restart() -> None:
