@@ -425,7 +425,7 @@ async def run_profile(args: argparse.Namespace, visitors_count: int) -> ProfileR
         database_bytes = scalar(
             """
             SELECT COALESCE(
-                SUM(pg_total_relation_size(format('%I.%I', schemaname, tablename)::regclass)),
+                SUM(pg_total_relation_size(format('%%I.%%I', schemaname, tablename)::regclass)),
                 0
             )
             FROM pg_tables
