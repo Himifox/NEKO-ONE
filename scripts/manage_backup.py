@@ -1,9 +1,9 @@
 """Create, verify, and restore NEKO-ONE data snapshots.
 
-SQLite files are copied with SQLite's online backup API. Other files are
-copied only after their size, mtime, and content hash remain stable. The
-result is a plaintext staging snapshot: operators must encrypt it before it
-leaves the trusted host.
+The public-room PostgreSQL database is captured with ``pg_dump``. Memory-owned
+SQLite files use SQLite's online backup API. Other files are copied only after
+their size, mtime, and content hash remain stable. The result is a plaintext
+staging snapshot: operators must encrypt it before it leaves the trusted host.
 """
 
 from __future__ import annotations
@@ -25,6 +25,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 from uuid import uuid4
 
+import psycopg
+from psycopg.conninfo import conninfo_to_dict
+from psycopg.rows import dict_row
+
+from main_logic.room.store import SCHEMA_VERSION
+
 
 FORMAT_VERSION = 1
 MANIFEST_NAME = "manifest.json"
@@ -33,6 +39,18 @@ SQLITE_HEADER = b"SQLite format 3\x00"
 COPY_ATTEMPTS = 3
 PUBLISH_ATTEMPTS = 5
 ROOT_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+POSTGRES_ROOT = "postgresql"
+POSTGRES_DUMP_NAME = "public-room.dump"
+PUBLIC_TABLES = (
+    "visitors",
+    "rooms",
+    "messages",
+    "room_events",
+    "client_requests",
+    "turns",
+    "audit_log",
+    "service_settings",
+)
 
 
 class BackupError(RuntimeError):
@@ -210,6 +228,153 @@ def _backup_sqlite(source: Path, destination: Path) -> dict[str, Any]:
     return metadata
 
 
+def _postgres_url(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value.startswith(("postgresql://", "postgres://")):
+        raise BackupError(f"{name} must contain a PostgreSQL URL")
+    return value
+
+
+def _postgres_metadata(database_url: str) -> dict[str, Any]:
+    try:
+        with psycopg.connect(
+            database_url,
+            row_factory=dict_row,
+            connect_timeout=5,
+            application_name="neko-one-backup-metadata",
+        ) as connection:
+            version_row = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations"
+            ).fetchone()
+            version = int(version_row["version"] if version_row else 0)
+            if version != SCHEMA_VERSION:
+                raise BackupError(
+                    f"unsupported PostgreSQL schema version: {version}"
+                )
+            counts = {
+                table: int(
+                    connection.execute(
+                        f"SELECT COUNT(*) AS count FROM {table}"
+                    ).fetchone()["count"]
+                )
+                for table in PUBLIC_TABLES
+            }
+            room_last_seq = {
+                str(row["id"]): int(row["last_seq"])
+                for row in connection.execute(
+                    "SELECT id, last_seq FROM rooms ORDER BY id"
+                ).fetchall()
+            }
+            event_high_water = {
+                str(row["room_id"]): int(row["high_water"])
+                for row in connection.execute(
+                    """
+                    SELECT room_id, COALESCE(MAX(room_seq), 0) AS high_water
+                    FROM room_events GROUP BY room_id ORDER BY room_id
+                    """
+                ).fetchall()
+            }
+    except BackupError:
+        raise
+    except psycopg.Error as exc:
+        raise BackupError("cannot read PostgreSQL backup metadata") from exc
+    for room_id, high_water in event_high_water.items():
+        if high_water > room_last_seq.get(room_id, -1):
+            raise BackupError(f"room {room_id} last_seq is behind persisted events")
+    return {
+        "schema_version": version,
+        "table_counts": counts,
+        "room_last_seq": room_last_seq,
+        "event_high_water": event_high_water,
+    }
+
+
+def _postgres_environment(database_url: str) -> dict[str, str]:
+    environment = os.environ.copy()
+    parameters = conninfo_to_dict(database_url)
+    mappings = {
+        "dbname": "PGDATABASE",
+        "host": "PGHOST",
+        "port": "PGPORT",
+        "user": "PGUSER",
+        "password": "PGPASSWORD",
+        "sslmode": "PGSSLMODE",
+        "sslrootcert": "PGSSLROOTCERT",
+        "sslcert": "PGSSLCERT",
+        "sslkey": "PGSSLKEY",
+    }
+    for parameter, variable in mappings.items():
+        value = parameters.get(parameter)
+        if value is not None:
+            environment[variable] = str(value)
+    environment["PGCONNECT_TIMEOUT"] = "10"
+    return environment
+
+
+def _run_postgres_tool(
+    command: list[str], *, database_url: str | None = None, timeout: int = 300
+) -> subprocess.CompletedProcess[str]:
+    executable = shutil.which(command[0])
+    if executable is None:
+        raise BackupError(f"required PostgreSQL tool is unavailable: {command[0]}")
+    resolved = [executable, *command[1:]]
+    try:
+        return subprocess.run(
+            resolved,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=(
+                _postgres_environment(database_url)
+                if database_url is not None
+                else None
+            ),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise BackupError(f"{command[0]} failed") from exc
+
+
+def _verify_postgres_archive(path: Path) -> None:
+    result = _run_postgres_tool(["pg_restore", "--list", str(path)], timeout=60)
+    listing = result.stdout
+    required = ("TABLE public rooms", "TABLE public messages", "TABLE public room_events")
+    if any(token not in listing for token in required):
+        raise BackupError("PostgreSQL archive is missing required public-room tables")
+
+
+def _backup_postgres(database_url: str, data_root: Path) -> dict[str, Any]:
+    destination_root = data_root / POSTGRES_ROOT
+    destination_root.mkdir(parents=True, exist_ok=False)
+    destination = destination_root / POSTGRES_DUMP_NAME
+    before = _postgres_metadata(database_url)
+    _run_postgres_tool(
+        [
+            "pg_dump",
+            "--format=custom",
+            "--no-owner",
+            "--no-acl",
+            "--file",
+            str(destination),
+        ],
+        database_url=database_url,
+    )
+    _verify_postgres_archive(destination)
+    after = _postgres_metadata(database_url)
+    # pg_dump has its own transaction snapshot. Requiring stable high-level
+    # metadata prevents a busy source from producing ambiguous drill evidence.
+    if before != after:
+        raise BackupError("PostgreSQL metadata changed during snapshot; retry")
+    return {
+        "path": (Path("data") / POSTGRES_ROOT / POSTGRES_DUMP_NAME).as_posix(),
+        "root": POSTGRES_ROOT,
+        "kind": "postgresql",
+        "size": destination.stat().st_size,
+        "sha256": _sha256(destination),
+        "postgresql": after,
+    }
+
+
 def _snapshot_source(source: SourceRoot, data_root: Path) -> list[dict[str, Any]]:
     destination_root = data_root / source.name
     last_error: Exception | None = None
@@ -295,6 +460,7 @@ def create_backup(
     *,
     output: Path,
     public_data: Path,
+    database_url: str | None = None,
     memory_data: Path | None = None,
     private_config: Path | None = None,
     persona_version: str = "operator-unset",
@@ -303,6 +469,7 @@ def create_backup(
     """Create one atomic plaintext snapshot and return its manifest."""
 
     output = output.expanduser().resolve()
+    database_url = database_url or _postgres_url("NEKO_PUBLIC_DATABASE_URL")
     sources = [SourceRoot("public", public_data.expanduser().resolve())]
     if memory_data is not None:
         sources.append(SourceRoot("memory", memory_data.expanduser().resolve()))
@@ -318,7 +485,9 @@ def create_backup(
     temporary = output.parent / f".{output.name}.partial-{uuid4().hex}"
     temporary.mkdir(mode=0o700)
     try:
-        all_entries: list[dict[str, Any]] = []
+        all_entries: list[dict[str, Any]] = [
+            _backup_postgres(database_url, temporary / "data")
+        ]
         for source in sources:
             all_entries.extend(_snapshot_source(source, temporary / "data"))
         repo_root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
@@ -332,8 +501,14 @@ def create_backup(
             "plaintext": True,
             "encryption_required_before_transfer": True,
             "sources": [
+                {
+                    "name": POSTGRES_ROOT,
+                    "original_path": "NEKO_PUBLIC_DATABASE_URL (redacted)",
+                },
+                *[
                 {"name": source.name, "original_path": str(source.path)}
                 for source in sources
+                ],
             ],
             "files": sorted(all_entries, key=lambda entry: entry["path"]),
         }
@@ -365,7 +540,7 @@ def _safe_manifest_path(backup: Path, raw_path: str) -> Path:
 
 
 def verify_backup(backup: Path) -> dict[str, Any]:
-    """Verify manifest, file set, hashes, sizes, and all SQLite databases."""
+    """Verify manifest, file set, hashes, PostgreSQL archive, and SQLite files."""
 
     backup = backup.expanduser().resolve()
     _validate_tree_path(backup)
@@ -403,6 +578,7 @@ def verify_backup(backup: Path) -> dict[str, Any]:
         raise BackupError("manifest files must be a list")
     expected_paths: set[str] = set()
     sqlite_count = 0
+    postgres_count = 0
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
             raise BackupError("manifest contains an invalid file entry")
@@ -436,6 +612,20 @@ def verify_backup(backup: Path) -> dict[str, Any]:
                 raise BackupError(f"cannot verify SQLite file {raw_path}: {exc}") from exc
             if current_metadata != entry.get("sqlite"):
                 raise BackupError(f"SQLite metadata differs from manifest: {raw_path}")
+        elif entry.get("kind") == "postgresql":
+            postgres_count += 1
+            if entry_root != POSTGRES_ROOT or raw_path != (
+                Path("data") / POSTGRES_ROOT / POSTGRES_DUMP_NAME
+            ).as_posix():
+                raise BackupError("PostgreSQL archive is outside its fixed location")
+            metadata = entry.get("postgresql")
+            if (
+                not isinstance(metadata, dict)
+                or metadata.get("schema_version") != SCHEMA_VERSION
+                or set(metadata.get("table_counts", {})) != set(PUBLIC_TABLES)
+            ):
+                raise BackupError("PostgreSQL archive metadata is invalid")
+            _verify_postgres_archive(path)
     actual_paths = {
         path.relative_to(backup).as_posix()
         for path in (backup / "data").rglob("*")
@@ -445,12 +635,15 @@ def verify_backup(backup: Path) -> dict[str, Any]:
         missing = sorted(expected_paths - actual_paths)
         unexpected = sorted(actual_paths - expected_paths)
         raise BackupError(f"backup file set differs: missing={missing}, unexpected={unexpected}")
+    if postgres_count != 1:
+        raise BackupError("backup must contain exactly one PostgreSQL archive")
     return {
         "ok": True,
         "backup": str(backup),
         "created_at": manifest.get("created_at"),
         "files": len(entries),
         "sqlite_files": sqlite_count,
+        "postgresql_archives": postgres_count,
         "bytes": sum(int(entry["size"]) for entry in entries),
         "roots": root_names,
     }
@@ -484,6 +677,8 @@ def restore_backup(*, backup: Path, destination: Path) -> dict[str, Any]:
                     current_metadata = _sqlite_metadata(connection)
                 if current_metadata != entry.get("sqlite"):
                     raise BackupError(f"restored SQLite metadata mismatch: {raw_path}")
+            elif entry.get("kind") == "postgresql":
+                _verify_postgres_archive(restored_path)
         restore_report = {
             **verification,
             "restored_at": _utc_now(),
@@ -497,6 +692,83 @@ def restore_backup(*, backup: Path, destination: Path) -> dict[str, Any]:
         if temporary.exists():
             shutil.rmtree(temporary)
         raise
+
+
+def restore_postgres_backup(
+    *, backup: Path, database_url: str, confirm_empty_database: str
+) -> dict[str, Any]:
+    """Restore the archive into an explicitly confirmed, completely empty DB."""
+
+    backup = backup.expanduser().resolve()
+    verify_backup(backup)
+    manifest = json.loads((backup / MANIFEST_NAME).read_text(encoding="utf-8"))
+    postgres_entries = [
+        entry for entry in manifest["files"] if entry.get("kind") == "postgresql"
+    ]
+    if len(postgres_entries) != 1:
+        raise BackupError("backup does not contain exactly one PostgreSQL archive")
+    entry = postgres_entries[0]
+    archive = _safe_manifest_path(backup, str(entry["path"]))
+    expected_metadata = entry.get("postgresql")
+
+    try:
+        with psycopg.connect(
+            database_url,
+            row_factory=dict_row,
+            connect_timeout=5,
+            application_name="neko-one-restore-preflight",
+        ) as connection:
+            identity = connection.execute(
+                "SELECT current_database() AS database, current_user AS username"
+            ).fetchone()
+            database_name = str(identity["database"] if identity else "")
+            if not confirm_empty_database or confirm_empty_database != database_name:
+                raise BackupError(
+                    "--confirm-empty-database must exactly match the restore database"
+                )
+            tables = [
+                str(row["tablename"])
+                for row in connection.execute(
+                    """
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public' ORDER BY tablename
+                    """
+                ).fetchall()
+            ]
+            if tables:
+                raise BackupError(
+                    f"PostgreSQL restore target is not empty: {tables}"
+                )
+    except BackupError:
+        raise
+    except psycopg.Error as exc:
+        raise BackupError("cannot inspect PostgreSQL restore target") from exc
+
+    _run_postgres_tool(
+        [
+            "pg_restore",
+            "--exit-on-error",
+            "--single-transaction",
+            "--no-owner",
+            "--no-acl",
+            "--dbname",
+            database_name,
+            str(archive),
+        ],
+        database_url=database_url,
+    )
+    restored_metadata = _postgres_metadata(database_url)
+    if restored_metadata != expected_metadata:
+        raise BackupError(
+            "restored PostgreSQL metadata differs; discard the isolated database"
+        )
+    return {
+        "ok": True,
+        "backup": str(backup),
+        "database": database_name,
+        "restored_at": _utc_now(),
+        "postgresql": restored_metadata,
+    }
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -516,6 +788,13 @@ def _parser() -> argparse.ArgumentParser:
     restore = subparsers.add_parser("restore", help="restore into a new isolation directory")
     restore.add_argument("--backup", type=Path, required=True)
     restore.add_argument("--destination", type=Path, required=True)
+
+    restore_postgres = subparsers.add_parser(
+        "restore-postgres",
+        help="restore the PostgreSQL archive into a separately configured empty DB",
+    )
+    restore_postgres.add_argument("--backup", type=Path, required=True)
+    restore_postgres.add_argument("--confirm-empty-database", required=True)
     return parser
 
 
@@ -539,8 +818,14 @@ def main(argv: list[str] | None = None) -> int:
             }
         elif args.command == "verify":
             result = verify_backup(args.backup)
-        else:
+        elif args.command == "restore":
             result = restore_backup(backup=args.backup, destination=args.destination)
+        else:
+            result = restore_postgres_backup(
+                backup=args.backup,
+                database_url=_postgres_url("NEKO_POSTGRES_RESTORE_URL"),
+                confirm_empty_database=args.confirm_empty_database,
+            )
     except BackupError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1

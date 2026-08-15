@@ -24,6 +24,7 @@ jobs:
       NEKO_LANGUAGE: zh
       PYTHONUTF8: "1"
       NEKO_PUBLIC_DATABASE_URL: postgresql://neko_ci:neko_ci_password@127.0.0.1:5432/neko_ci_test
+      NEKO_POSTGRES_RESTORE_URL: postgresql://neko_ci:neko_ci_password@127.0.0.1:5432/neko_restore_test
       NEKO_VERIFY_ALLOW_DATABASE_RESET: "1"
 
     steps:
@@ -34,6 +35,7 @@ jobs:
           pg_ctlcluster 15 main start
           runuser -u postgres -- psql -v ON_ERROR_STOP=1 -c "CREATE ROLE neko_ci LOGIN PASSWORD 'neko_ci_password'"
           runuser -u postgres -- createdb --owner=neko_ci neko_ci_test
+          runuser -u postgres -- createdb --owner=neko_ci neko_restore_test
 
       - name: Check out source
         uses: actions/checkout@v7

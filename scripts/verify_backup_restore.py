@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 import tempfile
 from contextlib import closing
 from pathlib import Path
+
+import psycopg
+from psycopg.rows import dict_row
 
 from manage_backup import (
     BackupError,
@@ -16,8 +21,11 @@ from manage_backup import (
     MANIFEST_NAME,
     create_backup,
     restore_backup,
+    restore_postgres_backup,
     verify_backup,
 )
+from main_logic.room.store import RoomStore
+from verification_postgres import connect, database_url, reset_public_tables
 
 
 def _write_manifest_digest(directory: Path) -> None:
@@ -49,7 +57,10 @@ def main() -> None:
     public.mkdir()
     memory.mkdir()
     private.mkdir()
-    connection: sqlite3.Connection | None = None
+    reset_public_tables()
+    restore_database_url = os.environ.get("NEKO_POSTGRES_RESTORE_URL", "").strip()
+    if not restore_database_url.startswith(("postgresql://", "postgres://")):
+        raise RuntimeError("NEKO_POSTGRES_RESTORE_URL is required")
     try:
         (public / "session.secret").write_text("guest-secret", encoding="utf-8")
         (public / "admin-session.secret").write_text("admin-secret", encoding="utf-8")
@@ -62,18 +73,35 @@ def main() -> None:
         )
         (private / "providers.env").write_text("API_KEY=private-value\n", encoding="utf-8")
 
-        database = public / "public-room.db"
-        connection = sqlite3.connect(database)
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute(
-            "CREATE TABLE rooms(id TEXT PRIMARY KEY, last_seq INTEGER NOT NULL)"
-        )
-        connection.execute(
-            "CREATE TABLE messages(id TEXT PRIMARY KEY, content TEXT NOT NULL)"
-        )
-        connection.execute("INSERT INTO rooms VALUES('main', 7)")
-        connection.execute("INSERT INTO messages VALUES('msg-1', 'before backup')")
-        connection.commit()
+        asyncio.run(RoomStore(database_url(), data_dir=public).initialize())
+        with connect() as connection:
+            timestamp = "2026-08-16T00:00:00Z"
+            connection.execute(
+                "UPDATE rooms SET last_seq = 7, updated_at = %s WHERE id = 'main'",
+                (timestamp,),
+            )
+            connection.execute(
+                """
+                INSERT INTO messages(
+                    id, room_id, room_seq, author_type, author_id, display_name,
+                    reply_to_id, content, status, metadata_json, created_at
+                ) VALUES(
+                    'msg-1', 'main', 1, 'neko', 'character:NEKO', 'NEKO',
+                    NULL, 'before backup', 'visible', '{}'::jsonb, %s
+                )
+                """,
+                (timestamp,),
+            )
+            connection.execute(
+                """
+                INSERT INTO room_events(id, room_id, room_seq, type, payload_json, created_at)
+                VALUES(
+                    'evt-1', 'main', 1, 'message.created',
+                    '{"id":"msg-1","content":"before backup"}'::jsonb, %s
+                )
+                """,
+                (timestamp,),
+            )
 
         memory_database = memory / "facts.sqlite3"
         with closing(sqlite3.connect(memory_database)) as memory_connection:
@@ -93,38 +121,78 @@ def main() -> None:
         assert manifest["encryption_required_before_transfer"] is True
         assert manifest["persona_version"] == "persona-v7"
         assert {source["name"] for source in manifest["sources"]} == {
+            "postgresql",
             "public",
             "memory",
             "private-config",
         }
         manifest_paths = {entry["path"] for entry in manifest["files"]}
-        assert "data/public/public-room.db" in manifest_paths
+        assert "data/postgresql/public-room.dump" in manifest_paths
         assert "data/memory/facts.sqlite3" in manifest_paths
         assert not any(path.endswith(("-wal", "-shm", "-journal")) for path in manifest_paths)
         database_entry = next(
-            entry for entry in manifest["files"] if entry["path"] == "data/public/public-room.db"
+            entry
+            for entry in manifest["files"]
+            if entry["path"] == "data/postgresql/public-room.dump"
         )
-        assert database_entry["kind"] == "sqlite"
-        assert database_entry["sqlite"]["integrity_check"] == "ok"
-        assert database_entry["sqlite"]["room_last_seq"] == {"main": 7}
+        assert database_entry["kind"] == "postgresql"
+        assert database_entry["postgresql"]["schema_version"] == 1
+        assert database_entry["postgresql"]["room_last_seq"] == {"main": 7}
+        assert database_entry["postgresql"]["table_counts"]["messages"] == 1
 
         verification = verify_backup(backup)
         assert verification["ok"] is True
-        assert verification["sqlite_files"] == 2
+        assert verification["sqlite_files"] == 1
+        assert verification["postgresql_archives"] == 1
 
-        connection.execute("INSERT INTO messages VALUES('msg-2', 'after backup')")
-        connection.execute("UPDATE rooms SET last_seq=8 WHERE id='main'")
-        connection.commit()
+        with connect() as connection:
+            connection.execute(
+                "UPDATE rooms SET last_seq=8 WHERE id='main'"
+            )
+            connection.execute(
+                """
+                INSERT INTO messages(
+                    id, room_id, room_seq, author_type, author_id, display_name,
+                    reply_to_id, content, status, metadata_json, created_at
+                ) VALUES(
+                    'msg-2', 'main', 8, 'neko', 'character:NEKO', 'NEKO',
+                    NULL, 'after backup', 'visible', '{}'::jsonb,
+                    '2026-08-16T00:01:00Z'
+                )
+                """
+            )
         (memory / "persona.json").write_text("changed after backup", encoding="utf-8")
 
         report = restore_backup(backup=backup, destination=restore)
         assert report["ok"] is True
         assert report["layout"]["public"] == "data/public"
-        restored_database = restore / "data" / "public" / "public-room.db"
-        with closing(sqlite3.connect(restored_database)) as restored_connection:
-            assert restored_connection.execute("SELECT last_seq FROM rooms").fetchone()[0] == 7
-            assert restored_connection.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 1
-            assert restored_connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert report["layout"]["postgresql"] == "data/postgresql"
+        assert (restore / "data" / "postgresql" / "public-room.dump").is_file()
+        with psycopg.connect(
+            restore_database_url, row_factory=dict_row
+        ) as restore_connection:
+            restore_database_name = restore_connection.execute(
+                "SELECT current_database() AS database"
+            ).fetchone()["database"]
+        postgres_restore = restore_postgres_backup(
+            backup=backup,
+            database_url=restore_database_url,
+            confirm_empty_database=str(restore_database_name),
+        )
+        assert postgres_restore["ok"] is True
+        assert postgres_restore["postgresql"]["room_last_seq"] == {"main": 7}
+        with psycopg.connect(
+            restore_database_url, row_factory=dict_row
+        ) as restored_connection:
+            assert restored_connection.execute(
+                "SELECT last_seq FROM rooms"
+            ).fetchone()["last_seq"] == 7
+            assert restored_connection.execute(
+                "SELECT COUNT(*) AS count FROM messages"
+            ).fetchone()["count"] == 1
+            assert restored_connection.execute(
+                "SELECT content FROM messages WHERE id = 'msg-1'"
+            ).fetchone()["content"] == "before backup"
         restored_persona = restore / "data" / "memory" / "persona.json"
         assert json.loads(restored_persona.read_text(encoding="utf-8"))["version"] == "persona-v7"
         assert (restore / "data" / "private-config" / "providers.env").is_file()
@@ -133,6 +201,14 @@ def main() -> None:
         _expect_failure(
             lambda: restore_backup(backup=backup, destination=restore),
             "already exists",
+        )
+        _expect_failure(
+            lambda: restore_postgres_backup(
+                backup=backup,
+                database_url=restore_database_url,
+                confirm_empty_database=str(restore_database_name),
+            ),
+            "not empty",
         )
 
         tampered = temporary / "tampered-content"
@@ -155,12 +231,10 @@ def main() -> None:
         _expect_failure(lambda: verify_backup(unsafe), "unsafe manifest path")
 
         print(
-            "backup/restore verification passed: online SQLite snapshot, manifests, "
-            "isolated restore, corruption detection, and path rejection"
+            "backup/restore verification passed: PostgreSQL dump/restore, online "
+            "Memory SQLite snapshot, manifests, corruption detection, and path rejection"
         )
     finally:
-        if connection is not None:
-            connection.close()
         shutil.rmtree(temporary, ignore_errors=False)
 
 
