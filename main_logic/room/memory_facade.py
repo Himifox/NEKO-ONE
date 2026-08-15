@@ -31,6 +31,31 @@ class MemoryFacade:
     def _base_url(self) -> str:
         return f"http://127.0.0.1:{self.memory_server_port}"
 
+    async def health_snapshot(self) -> dict[str, object]:
+        """Probe the loopback health fingerprint without exposing its address."""
+
+        try:
+            async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
+                response = await client.get(f"{self._base_url}/health")
+            payload = response.json() if response.is_success else {}
+            healthy = bool(
+                response.is_success
+                and payload.get("app") == "N.E.K.O"
+                and payload.get("service") == "memory"
+                and payload.get("status") == "ok"
+            )
+            return {
+                "healthy": healthy,
+                "status": "ready" if healthy else "degraded",
+                "error_code": None if healthy else "unexpected_health_response",
+            }
+        except (httpx.HTTPError, OSError, ValueError, json.JSONDecodeError):
+            return {
+                "healthy": False,
+                "status": "degraded",
+                "error_code": "unavailable",
+            }
+
     @classmethod
     def room_subject(cls, room_id: str) -> dict[str, str]:
         return {

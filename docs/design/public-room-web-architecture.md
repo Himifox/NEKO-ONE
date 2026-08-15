@@ -547,7 +547,7 @@ Director 只有同时满足以下条件才可创建主动 turn：
 - `POST /api/v1/ws-ticket`：可选，签发短期连接票据；
 - `GET /api/v1/media/{media_id}`：受控读取 TTS 资源；
 - `GET /health/live`：进程存活；
-- `GET /health/ready`：依赖就绪，只允许代理/监控访问详细信息。
+- `GET /health/ready`：验证 SQLite 完整性、可回滚写入、磁盘余量、主房间和 LLM/Persona 配置；Memory/TTS/Live2D 只报告降级。Nginx 仅允许同机代理/监控访问详细信息。
 
 管理 API 使用 `/api/v1/admin/*`。第一版已经覆盖 Persona、记忆审核、封禁、额度、暂停/只读/主动主持控制、取消当前 generation、数据保留/清理和审计查询；模型/TTS 配置仍保留在私有服务端配置目录。不得在同一路由中仅靠前端隐藏按钮区分管理员能力。
 

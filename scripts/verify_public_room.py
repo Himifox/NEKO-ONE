@@ -88,6 +88,53 @@ def main() -> None:
             assert avatar.status_code == 200
             assert avatar.json()["enabled"] is False
             assert avatar.json()["status"] == "not_configured"
+            real_engine_readiness = app.state.room_service.engine.readiness_snapshot
+            real_memory_health = app.state.room_service.memory.health_snapshot
+            real_storage_readiness = app.state.room_service.store.readiness_snapshot
+
+            async def fake_engine_readiness():
+                return {
+                    "configured": True,
+                    "endpoint_valid": True,
+                    "model_present": True,
+                    "persona_present": True,
+                    "error_code": None,
+                }
+
+            async def fake_memory_health():
+                return {"healthy": False, "status": "degraded", "error_code": "unavailable"}
+
+            app.state.room_service.engine.readiness_snapshot = fake_engine_readiness
+            app.state.room_service.memory.health_snapshot = fake_memory_health
+            ready = client.get("/api/v1/health/ready")
+            assert ready.status_code == 200
+            readiness = ready.json()
+            assert readiness["ok"] is True
+            assert readiness["storage"]["integrity"] == "ok"
+            assert readiness["storage"]["writable"] is True
+            assert readiness["storage"]["disk_space_ok"] is True
+            assert "free_mib" not in readiness["storage"]
+            assert "minimum_free_mib" not in readiness["storage"]
+            assert readiness["memory"]["status"] == "degraded"
+            assert readiness["optional"]["live2d"] is False
+
+            async def failing_storage_readiness(*, minimum_free_mib):
+                return {
+                    "ok": False,
+                    "integrity": "ok",
+                    "writable": False,
+                    "disk_space_ok": True,
+                    "error_code": "sqlite_unavailable",
+                }
+
+            app.state.room_service.store.readiness_snapshot = failing_storage_readiness
+            not_ready = client.get("/api/v1/health/ready")
+            assert not_ready.status_code == 503
+            assert not_ready.json()["ok"] is False
+            assert not_ready.json()["storage"]["error_code"] == "sqlite_unavailable"
+            app.state.room_service.store.readiness_snapshot = real_storage_readiness
+            app.state.room_service.engine.readiness_snapshot = real_engine_readiness
+            app.state.room_service.memory.health_snapshot = real_memory_health
             real_memory_build_context = app.state.room_service.memory.build_context
             app.state.room_service.engine.generate = fake_generate
             app.state.room_service.memory.build_context = fake_memory_context

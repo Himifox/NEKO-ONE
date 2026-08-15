@@ -123,6 +123,9 @@ uv run --env-file .env.public neko-public
 - 就绪检查：<http://127.0.0.1:48911/api/v1/health/ready>
 
 如果 `NEKO_PUBLIC_ADMIN_PASSWORD` 少于 12 位或未设置，管理 API 会保持禁用。
+就绪检查会实际验证 SQLite 完整性、可写性、最低磁盘余量和 LLM/Persona
+配置；Memory、TTS 与 Live2D 作为可降级能力单独报告。生产 Nginx 只允许
+本机监控访问详细就绪结果，公网只保留不含依赖细节的存活检查。
 
 ## 记忆与身份边界
 

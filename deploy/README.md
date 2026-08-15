@@ -7,7 +7,8 @@ proxy. Only Nginx listens on the public network.
    `/opt/neko-one`, then run `uv venv --python 3.11` and
    `uv pip install -r requirements-public.txt`.
 2. Copy `.env.public.example` to `/etc/neko-public.env`, replace every secret and
-   domain, then set owner `root:neko` and mode `0640`.
+   domain, set `NEKO_PUBLIC_MIN_FREE_MIB` to the disk headroom required by the
+   local retention/backup policy, then set owner `root:neko` and mode `0640`.
 3. Keep the existing private model/TTS configuration under the service user's
    application data directory. Do not copy keys into the web root.
    Install only a model with proven Web publication rights under
@@ -34,6 +35,13 @@ Expected network surface:
 - Never expose the memory port, TTS upstream credentials or admin cookie secret.
 - Memory is a weak dependency: an outage degrades recall and writes but must not
   stop `neko-public`.
+
+Use `http://127.0.0.1:48911/api/v1/health/ready` for the same-host monitor or
+load balancer and `/api/v1/health/live` only to detect a running process. The
+readiness probe returns 503 when SQLite integrity, rollbackable writes, disk
+headroom, room initialization, or the private LLM/Persona configuration fails.
+Memory, TTS and Live2D remain reported degradations and do not block the text
+room. Nginx denies public access to the detailed readiness response.
 
 The default CSP refuses every iframe parent. If the room is later embedded in a
 blog, replace `frame-ancestors 'none'` in both the application policy and Nginx

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from urllib.parse import urlparse
 
 from main_logic.omni_offline_client import OmniOfflineClient
 from utils.config_manager import get_config_manager
@@ -30,6 +31,38 @@ class ConversationEngine:
             "{MASTER_NAME}", master_name
         )
         return character_name or "NEKO", base_prompt
+
+    async def readiness_snapshot(self) -> dict[str, object]:
+        """Return only non-secret configuration readiness for the public probe."""
+
+        try:
+            configuration = await self._config_manager.aget_model_api_config(
+                "conversation"
+            )
+            character_name, base_prompt = await self.character()
+            parsed = urlparse(str(configuration.get("base_url") or "").strip())
+            endpoint_valid = parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+            configured = bool(
+                str(configuration.get("model") or "").strip()
+                and endpoint_valid
+                and character_name.strip()
+                and base_prompt.strip()
+            )
+            return {
+                "configured": configured,
+                "endpoint_valid": endpoint_valid,
+                "model_present": bool(str(configuration.get("model") or "").strip()),
+                "persona_present": bool(base_prompt.strip()),
+                "error_code": None if configured else "incomplete_configuration",
+            }
+        except Exception:
+            return {
+                "configured": False,
+                "endpoint_valid": False,
+                "model_present": False,
+                "persona_present": False,
+                "error_code": "configuration_unavailable",
+            }
 
     async def generate(
         self,

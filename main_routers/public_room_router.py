@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import asyncio
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from main_logic.room.models import utc_now
@@ -31,13 +33,37 @@ async def health_live() -> dict:
 
 
 @router.get("/health/ready")
-async def health_ready(request: Request) -> dict:
+async def health_ready(request: Request):
     service = _service(request)
-    snapshot = await service.store.room_snapshot("main")
-    ready = snapshot.get("status") != "missing"
+    minimum_free_mib = service._env_int(
+        "NEKO_PUBLIC_MIN_FREE_MIB", 256, 16, 102400
+    )
+    storage, conversation, memory = await asyncio.gather(
+        service.store.readiness_snapshot(minimum_free_mib=minimum_free_mib),
+        service.engine.readiness_snapshot(),
+        service.memory.health_snapshot(),
+    )
+    room = await service.store.room_snapshot("main")
+    ready = bool(
+        storage.get("ok")
+        and conversation.get("configured")
+        and room.get("status") != "missing"
+    )
+    payload = {
+        "ok": ready,
+        "storage": storage,
+        "conversation": conversation,
+        "memory": memory,
+        "optional": {
+            "tts": service.speech.configured,
+            "live2d": request.app.state.public_avatar.manifest()["enabled"],
+        },
+        "room": room,
+        "time": utc_now(),
+    }
     if not ready:
-        raise HTTPException(status_code=503, detail="room store unavailable")
-    return {"ok": True, "room": snapshot, "time": utc_now()}
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 @router.post("/session/guest")
@@ -77,9 +103,10 @@ async def get_room(room_id: str, request: Request) -> dict:
     snapshot["online"] = await _service(request).hub.online_count(room_id)
     snapshot["limits"] = dict(_service(request).limits)
     snapshot["controls"] = dict(_service(request).controls)
+    avatar = request.app.state.public_avatar.manifest()
     snapshot["features"] = {
         "text": True,
-        "live2d": True,
+        "live2d": avatar["enabled"],
         "tts": _service(request).speech.configured,
         "accounts": False,
     }

@@ -30,6 +30,8 @@ def main() -> None:
         "general API rate limit": "limit_req zone=neko_http",
         "429 limit response": "limit_req_status 429;",
         "WebSocket upgrade map": "map $http_upgrade $neko_connection_upgrade",
+        "private readiness probe": "location = /api/v1/health/ready",
+        "loopback readiness allowlist": "allow 127.0.0.1;",
     }
     missing = [label for label, token in required_nginx.items() if token not in nginx]
     assert not missing, f"missing Nginx controls: {missing}"
@@ -51,6 +53,7 @@ def main() -> None:
         "NEKO_PUBLIC_MAX_HTTP_BODY_BYTES=32768",
         "NEKO_PUBLIC_WS_MAX_SIZE_BYTES=16384",
         "NEKO_PUBLIC_WS_MAX_FRAME_CHARS=8192",
+        "NEKO_PUBLIC_MIN_FREE_MIB=256",
         "NEKO_PUBLIC_LIVE2D_MODEL_NAME=",
         "NEKO_PUBLIC_LIVE2D_MODEL_FILE=",
     ):

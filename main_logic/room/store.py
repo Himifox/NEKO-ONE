@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -138,6 +139,62 @@ class RoomStore:
                 """,
                 (now, now),
             )
+
+    async def readiness_snapshot(self, *, minimum_free_mib: int) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._readiness_snapshot_sync, max(1, int(minimum_free_mib))
+        )
+
+    def _readiness_snapshot_sync(self, minimum_free_mib: int) -> dict[str, Any]:
+        """Prove integrity, a real rollbackable write, and minimum disk headroom."""
+
+        free_bytes = shutil.disk_usage(self.database_path.parent).free
+        free_mib = free_bytes // (1024 * 1024)
+        result: dict[str, Any] = {
+            "ok": False,
+            "integrity": "unknown",
+            "writable": False,
+            "disk_space_ok": free_mib >= minimum_free_mib,
+            "error_code": None,
+        }
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = self._connect()
+            connection.execute("PRAGMA busy_timeout = 2000")
+            integrity = str(connection.execute("PRAGMA quick_check(1)").fetchone()[0])
+            result["integrity"] = integrity
+            if integrity.lower() != "ok":
+                result["error_code"] = "integrity"
+                return result
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO service_settings(key, value_json, updated_at)
+                VALUES('__readiness_probe__', '{}', ?)
+                ON CONFLICT(key) DO UPDATE SET updated_at=excluded.updated_at
+                """,
+                (utc_now(),),
+            )
+            connection.rollback()
+            result["writable"] = True
+            if free_mib < minimum_free_mib:
+                result["error_code"] = "disk_space"
+                return result
+            result["ok"] = True
+            return result
+        except sqlite3.Error:
+            result["error_code"] = "sqlite_unavailable"
+            return result
+        except OSError:
+            result["error_code"] = "storage_unavailable"
+            return result
+        finally:
+            if connection is not None:
+                try:
+                    connection.rollback()
+                except sqlite3.Error:
+                    pass
+                connection.close()
 
     async def create_visitor(self, display_name: str) -> Visitor:
         visitor = Visitor(id=f"vis_{uuid4().hex}", display_name=display_name)
