@@ -51,11 +51,21 @@ neko-memory = "app.memory_server.__main__:main"
 [tool.hatch.build.targets.wheel]
 packages = ["app", "config", "main_logic", "main_routers", "memory", "utils"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"assets" = "assets"
+"deploy" = "deploy"
+"docs" = "docs"
+"frontend" = "frontend"
+"scripts" = "scripts"
+"static/libs" = "static/libs"
+".env.public.example" = ".env.public.example"
+"requirements-public.txt" = "requirements-public.txt"
+
 [tool.hatch.build.targets.sdist]
 include = [
-  "app", "assets", "config", "deploy", "docs/design/public-room-web-architecture.md",
+  "app", "assets", "config", "deploy", "docs",
   "frontend/public-admin", "frontend/public-room", "main_logic", "main_routers",
-  "memory", "scripts/check_public_boundary.py", "scripts/verify_public_room.py",
+  "memory", "scripts",
   "static/libs", "utils", ".env.public.example", "requirements-public.txt",
   "README.MD", "LICENSE", "NOTICE",
 ]

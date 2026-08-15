@@ -42,6 +42,32 @@ def main() -> None:
         frontend = (ROOT / "frontend" / "public-room" / "app.js").read_text("utf-8")
         for secret_name in ("api_key", "API_KEY", "MEMORY_SERVER", "system_prompt"):
             assert secret_name not in frontend, f"frontend exposes forbidden token: {secret_name}"
+
+        from fastapi.testclient import TestClient
+
+        with TestClient(app, base_url="https://neko.example.test") as client:
+            page = client.get("/")
+            assert page.status_code == 200
+            assert "default-src 'self'" in page.headers["content-security-policy"]
+            assert "object-src 'none'" in page.headers["content-security-policy"]
+            assert page.headers["strict-transport-security"].startswith(
+                "max-age=31536000"
+            )
+            assert page.headers["x-content-type-options"] == "nosniff"
+            assert page.headers["x-frame-options"] == "DENY"
+            assert page.headers["cross-origin-resource-policy"] == "same-origin"
+            assert client.get("/admin").headers["cache-control"] == "no-store"
+            oversized = client.post(
+                "/api/v1/session/guest",
+                content=b"x" * 32769,
+                headers={"content-type": "application/json"},
+            )
+            assert oversized.status_code == 413
+
+            session = client.post("/api/v1/session/guest", json={})
+            cookie = session.headers["set-cookie"].lower()
+            assert "secure" in cookie and "httponly" in cookie
+            assert "samesite=lax" in cookie
     print("public boundary verification passed")
 
 

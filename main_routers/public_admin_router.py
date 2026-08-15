@@ -126,6 +126,7 @@ async def state(request: Request) -> dict:
             "controls": dict(service.controls),
             "retention": dict(service.retention),
             "last_cleanup": service.last_cleanup,
+            "dependencies": service.dependency_snapshot(),
             "active_generation": (
                 active_generation.snapshot() if active_generation else None
             ),

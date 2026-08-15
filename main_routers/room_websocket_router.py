@@ -14,6 +14,17 @@ from main_logic.room.session import COOKIE_NAME
 router = APIRouter()
 
 
+def _max_ws_frame_chars() -> int:
+    try:
+        configured = int(os.environ.get("NEKO_PUBLIC_WS_MAX_FRAME_CHARS", "8192"))
+    except ValueError:
+        configured = 8192
+    return max(1024, min(configured, 65536))
+
+
+MAX_WS_FRAME_CHARS = _max_ws_frame_chars()
+
+
 def _origin_allowed(websocket: WebSocket) -> bool:
     origin = (websocket.headers.get("origin") or "").strip().rstrip("/")
     configured = {
@@ -111,7 +122,7 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
 
         while True:
             raw = await websocket.receive_text()
-            if len(raw) > 8192:
+            if len(raw) > MAX_WS_FRAME_CHARS:
                 await service.hub.send(
                     connection,
                     {

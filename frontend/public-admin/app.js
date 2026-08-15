@@ -48,6 +48,24 @@
     document.getElementById("generation-state").textContent = state.active_generation
       ? `正在生成：${state.active_generation.generation_id} · ${state.active_generation.phase}`
       : "当前没有进行中的回复";
+    const dependencyLabels = { llm: "文本模型", memory: "长期记忆", tts: "共享语音" };
+    const dependencyState = document.getElementById("dependency-state");
+    dependencyState.replaceChildren();
+    Object.entries(state.dependencies || {}).forEach(([name, dependency]) => {
+      const item = document.createElement("div");
+      item.className = "dependency";
+      item.dataset.status = dependency.status;
+      const label = document.createElement("strong");
+      label.textContent = dependencyLabels[name] || name;
+      const status = document.createElement("span");
+      status.textContent = dependency.status;
+      const detail = document.createElement("small");
+      detail.textContent = dependency.error_code
+        ? `${dependency.error_code} · 连续失败 ${dependency.consecutive_failures}`
+        : (dependency.updated_at || "等待首次调用");
+      item.append(label, status, detail);
+      dependencyState.append(item);
+    });
     document.getElementById("message-retention-days").value = state.retention.message_days;
     document.getElementById("visitor-retention-days").value = state.retention.visitor_days;
     document.getElementById("audit-retention-days").value = state.retention.audit_days;

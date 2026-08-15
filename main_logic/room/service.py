@@ -85,8 +85,52 @@ class PublicRoomService:
                 "NEKO_PUBLIC_CLEANUP_INTERVAL_MINUTES", 60, 5, 1440
             ),
         }
+        self.llm_timeout_seconds = self._env_int(
+            "NEKO_PUBLIC_LLM_TIMEOUT_SECONDS", 120, 10, 600
+        )
+        self.memory_write_attempts = self._env_int(
+            "NEKO_PUBLIC_MEMORY_WRITE_ATTEMPTS", 3, 1, 5
+        )
+        self.tts_attempts = self._env_int(
+            "NEKO_PUBLIC_TTS_ATTEMPTS", 2, 1, 3
+        )
         self._apply_retention(self.retention)
         self.last_cleanup: dict[str, Any] | None = None
+        self.dependencies = {
+            "llm": self._dependency_entry("unknown"),
+            "memory": self._dependency_entry("unknown"),
+            "tts": self._dependency_entry(
+                "unknown" if self.speech.configured else "disabled"
+            ),
+        }
+
+    @staticmethod
+    def _dependency_entry(status: str) -> dict[str, Any]:
+        return {
+            "status": status,
+            "error_code": None,
+            "consecutive_failures": 0,
+            "updated_at": None,
+        }
+
+    def _mark_dependency(
+        self, name: str, status: str, error_code: str | None = None
+    ) -> None:
+        current = self.dependencies[name]
+        failures = (
+            int(current["consecutive_failures"]) + 1
+            if status == "degraded"
+            else 0
+        )
+        self.dependencies[name] = {
+            "status": status,
+            "error_code": error_code if status == "degraded" else None,
+            "consecutive_failures": failures,
+            "updated_at": utc_now(),
+        }
+
+    def dependency_snapshot(self) -> dict[str, dict[str, Any]]:
+        return {name: dict(state) for name, state in self.dependencies.items()}
 
     @staticmethod
     def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -537,6 +581,14 @@ class PublicRoomService:
                 recent_messages=recent_messages,
                 include_visitor_memory=not is_proactive,
             )
+            if self.memory.context_degraded:
+                self._mark_dependency(
+                    "memory",
+                    "degraded",
+                    self.memory.context_error_code or "unavailable",
+                )
+            else:
+                self._mark_dependency("memory", "ready")
 
             async def on_delta(delta: str) -> None:
                 generation.text += delta
@@ -555,19 +607,28 @@ class PublicRoomService:
                 )
 
             generation.phase = "generating"
-            character_name, raw_final_text = await self.engine.generate(
-                room_context=room_context,
-                user_text=(
-                    candidate.message.content
-                    if is_proactive
-                    else (
-                        f"{visitor.display_name} 在公共房间对你说：\n"
-                        f"{candidate.message.content}\n"
-                        f"请直接回复 {visitor.display_name}。"
-                    )
-                ),
-                on_delta=on_delta,
-            )
+            try:
+                character_name, raw_final_text = await asyncio.wait_for(
+                    self.engine.generate(
+                        room_context=room_context,
+                        user_text=(
+                            candidate.message.content
+                            if is_proactive
+                            else (
+                                f"{visitor.display_name} 在公共房间对你说：\n"
+                                f"{candidate.message.content}\n"
+                                f"请直接回复 {visitor.display_name}。"
+                            )
+                        ),
+                        on_delta=on_delta,
+                    ),
+                    timeout=float(self.llm_timeout_seconds),
+                )
+            except Exception as exc:
+                self._mark_dependency("llm", "degraded", type(exc).__name__)
+                raise
+            else:
+                self._mark_dependency("llm", "ready")
             final_text, emotion = split_emotion_tags(raw_final_text)
             if not final_text:
                 raise RuntimeError("model returned an empty response")
@@ -699,7 +760,19 @@ class PublicRoomService:
         self, *, room_id: str, message_id: str, text: str
     ) -> None:
         try:
-            payload = await self.speech.synthesize(text)
+            payload = None
+            last_error: Exception | None = None
+            for attempt in range(self.tts_attempts):
+                try:
+                    payload = await self.speech.synthesize(text)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    if attempt + 1 < self.tts_attempts:
+                        await asyncio.sleep(0.25 * (2**attempt))
+            if payload is None:
+                raise last_error or RuntimeError("TTS synthesis failed")
+            self._mark_dependency("tts", "ready")
             payload["message_id"] = message_id
             await self.hub.broadcast(
                 room_id,
@@ -709,7 +782,12 @@ class PublicRoomService:
                     "payload": payload,
                 },
             )
-        except Exception:
+        except Exception as exc:
+            self._mark_dependency(
+                "tts",
+                "degraded" if self.speech.configured else "disabled",
+                type(exc).__name__,
+            )
             logger.exception("public-room shared speech generation failed")
             await self.hub.broadcast(
                 room_id,
@@ -729,24 +807,44 @@ class PublicRoomService:
         user_message,
         assistant_text: str,
     ) -> None:
-        try:
-            await self.memory.record_interaction(
-                character_name=character_name,
-                room_id=room_id,
-                visitor=visitor,
-                user_message=user_message,
-                assistant_text=assistant_text,
-            )
-            await self.memory.record_mentions(
-                character_name=character_name,
-                room_id=room_id,
-                visitor_id=visitor.id,
-                response_text=assistant_text,
-            )
-        except Exception:
-            # Memory is an asynchronous side effect. The committed public reply
-            # stays authoritative and a memory outage cannot roll it back.
-            logger.exception("public-room scoped memory write failed")
+        last_error: Exception | None = None
+        for attempt in range(self.memory_write_attempts):
+            try:
+                await self.memory.record_interaction(
+                    character_name=character_name,
+                    room_id=room_id,
+                    visitor=visitor,
+                    user_message=user_message,
+                    assistant_text=assistant_text,
+                )
+                await self.memory.record_mentions(
+                    character_name=character_name,
+                    room_id=room_id,
+                    visitor_id=visitor.id,
+                    response_text=assistant_text,
+                )
+                self._mark_dependency("memory", "ready")
+                return
+            except Exception as exc:
+                last_error = exc
+                if attempt + 1 < self.memory_write_attempts:
+                    await asyncio.sleep(0.25 * (2**attempt))
+        self._mark_dependency(
+            "memory",
+            "degraded",
+            type(last_error).__name__ if last_error is not None else "unknown",
+        )
+        # Memory is an asynchronous side effect. The committed public reply
+        # stays authoritative and a memory outage cannot roll it back.
+        logger.error(
+            "public-room scoped memory write failed after %s attempts",
+            self.memory_write_attempts,
+            exc_info=(
+                (type(last_error), last_error, last_error.__traceback__)
+                if last_error is not None
+                else None
+            ),
+        )
 
     async def _broadcast_queue(self, room_id: str) -> None:
         director = self.directors.get(room_id)

@@ -1,8 +1,7 @@
 [Unit]
 Description=NEKO public room web service
 After=network-online.target neko-memory.service
-Wants=network-online.target
-Requires=neko-memory.service
+Wants=network-online.target neko-memory.service
 
 [Service]
 Type=simple
@@ -13,10 +12,19 @@ EnvironmentFile=/etc/neko-public.env
 ExecStart=/opt/neko-one/.venv/bin/python -m app.public_room_server
 Restart=on-failure
 RestartSec=3
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+AmbientCapabilities=
 ReadWritePaths=/var/lib/neko-public /var/lib/neko
 
 [Install]

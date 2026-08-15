@@ -24,6 +24,8 @@ class MemoryFacade:
 
     def __init__(self, *, memory_server_port: int = MEMORY_SERVER_PORT):
         self.memory_server_port = memory_server_port
+        self.context_degraded = False
+        self.context_error_code: str | None = None
 
     @property
     def _base_url(self) -> str:
@@ -59,6 +61,8 @@ class MemoryFacade:
         include_visitor_memory: bool = True,
     ) -> str:
         scoped_context = ""
+        self.context_degraded = False
+        self.context_error_code = None
         try:
             async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
                 response = await client.post(
@@ -73,7 +77,12 @@ class MemoryFacade:
                 )
                 if response.is_success:
                     scoped_context = response.text.strip()
+                else:
+                    self.context_degraded = True
+                    self.context_error_code = f"http_{response.status_code}"
         except (httpx.HTTPError, OSError):
+            self.context_degraded = True
+            self.context_error_code = "unavailable"
             scoped_context = ""
 
         public_history = []
@@ -93,6 +102,13 @@ class MemoryFacade:
         ]
         if scoped_context:
             blocks.extend(("[获准的房间及当前访客记忆]", scoped_context[:12000]))
+        elif self.context_degraded:
+            blocks.extend(
+                (
+                    "[记忆状态]",
+                    "memory-degraded：本轮只使用受保护 Persona 与最近公共消息。",
+                )
+            )
         if public_history:
             blocks.extend(("[最近公共消息]", "\n".join(public_history[-30:])))
         return "\n".join(blocks)

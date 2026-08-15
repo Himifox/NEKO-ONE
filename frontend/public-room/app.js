@@ -190,10 +190,17 @@
         queueState.textContent = "文字回复已完成，语音暂不可用";
         break;
       case "stream.completed":
+        streamRow.hidden = true;
+        state.rawStream = "";
+        streamText.textContent = "";
+        break;
       case "stream.failed":
         streamRow.hidden = true;
         state.rawStream = "";
         streamText.textContent = "";
+        queueState.textContent = payload.code === "generation_failed"
+          ? "回复服务暂时不可用，消息已保留，请稍后再试"
+          : "本次回复已中止";
         break;
       case "command.rejected":
         queueState.textContent = `发送失败：${payload.message || payload.code || "未知错误"}`;

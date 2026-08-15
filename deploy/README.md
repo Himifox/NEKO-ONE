@@ -12,8 +12,9 @@ proxy. Only Nginx listens on the public network.
    application data directory. Do not copy keys into the web root.
 4. Install the two systemd units, run `systemctl daemon-reload`, then enable and
    start `neko-memory` and `neko-public`.
-5. Install the Nginx configuration, issue the TLS certificate, replace
-   `neko.example.com`, and reload Nginx.
+5. Install the Nginx configuration inside the `http` context (for example under
+   `/etc/nginx/conf.d`), issue the TLS certificate, replace
+   `neko.example.com`, run `nginx -t`, and only then reload Nginx.
 6. Back up `/var/lib/neko-public` plus the memory/config application data every
    day. Test restore on a separate host.
 
@@ -28,10 +29,21 @@ Expected network surface:
 - Loopback only: public API `127.0.0.1:48911`, memory service on its configured
   memory port.
 - Never expose the memory port, TTS upstream credentials or admin cookie secret.
+- Memory is a weak dependency: an outage degrades recall and writes but must not
+  stop `neko-public`.
+
+The default CSP refuses every iframe parent. If the room is later embedded in a
+blog, replace `frame-ancestors 'none'` in both the application policy and Nginx
+with the exact HTTPS blog origin. Never use `*`.
 
 Before deployment, run:
 
 ```powershell
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_public_room.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/check_public_boundary.py
+uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_deployment_security.py
 ```
+
+The last script validates the example files, not the installed Nginx binary.
+Production acceptance still requires `nginx -t`, an external port scan and
+HTTP/WSS checks from outside the VPS.

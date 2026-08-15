@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -24,6 +25,24 @@ def _drain_until(websocket, wanted: str, limit: int = 30) -> list[dict]:
         if event.get("type") == wanted:
             return seen
     raise AssertionError((wanted, [event.get("type") for event in seen]))
+
+
+def _wait_for_dependency(
+    service,
+    name: str,
+    status: str,
+    timeout: float = 2.0,
+    error_code: str | None = None,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        dependency = service.dependency_snapshot()[name]
+        if dependency["status"] == status and (
+            error_code is None or dependency["error_code"] == error_code
+        ):
+            return dependency
+        time.sleep(0.01)
+    raise AssertionError((name, status, service.dependency_snapshot()[name]))
 
 
 def main() -> None:
@@ -63,10 +82,12 @@ def main() -> None:
 
     try:
         with TestClient(app) as client:
+            real_memory_build_context = app.state.room_service.memory.build_context
             app.state.room_service.engine.generate = fake_generate
             app.state.room_service.memory.build_context = fake_memory_context
             app.state.room_service.memory.record_interaction = fake_memory_write
             app.state.room_service.memory.record_mentions = fake_memory_write
+            app.state.room_service.speech._disabled = False
             app.state.room_service.speech.synthesize = fake_speech
             session = client.post("/api/v1/session/guest", json={})
             assert session.status_code == 200
@@ -142,13 +163,165 @@ def main() -> None:
                 "/api/v1/admin/limits",
                 json={
                     "max_message_chars": 1800,
-                    "messages_per_window": 4,
+                    "messages_per_window": 20,
                     "window_seconds": 12,
                 },
                 headers=headers,
             )
             assert limits.status_code == 200
-            assert limits.json()["limits"]["messages_per_window"] == 4
+            assert limits.json()["limits"]["messages_per_window"] == 20
+
+            async def failing_generate(**_kwargs):
+                await asyncio.Event().wait()
+
+            app.state.room_service.engine.generate = failing_generate
+            app.state.room_service.llm_timeout_seconds = 0.05
+            room = client.get("/api/v1/rooms/main").json()
+            with client.websocket_connect(
+                f"/ws/rooms/main?after_seq={room['last_seq']}"
+            ) as failure_ws:
+                _drain_until(failure_ws, "presence.updated")
+                failure_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-llm-failure",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                llm_failure = _drain_until(failure_ws, "stream.failed")
+                assert llm_failure[-1]["payload"]["code"] == "generation_failed"
+                assert any(
+                    event.get("type") == "turn.interrupted"
+                    and event.get("payload", {}).get("reason")
+                    == "generation_failed"
+                    for event in llm_failure
+                )
+                dependency = _wait_for_dependency(
+                    app.state.room_service, "llm", "degraded"
+                )
+                assert dependency["error_code"] == "TimeoutError"
+
+                app.state.room_service.engine.generate = fake_generate
+                app.state.room_service.llm_timeout_seconds = 120
+                failure_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-llm-recovery",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                _drain_until(failure_ws, "stream.completed")
+                _drain_until(failure_ws, "speech.ready")
+                _wait_for_dependency(app.state.room_service, "llm", "ready")
+
+            memory = app.state.room_service.memory
+            memory.memory_server_port = 1
+            memory.build_context = real_memory_build_context
+            memory_write_failures: list[str] = []
+
+            async def failing_memory_write(**_kwargs):
+                memory_write_failures.append("failed")
+                raise RuntimeError("verification Memory outage")
+
+            memory.record_interaction = failing_memory_write
+            room = client.get("/api/v1/rooms/main").json()
+            with client.websocket_connect(
+                f"/ws/rooms/main?after_seq={room['last_seq']}"
+            ) as memory_ws:
+                _drain_until(memory_ws, "presence.updated")
+                memory_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-memory-failure",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                memory_events = _drain_until(memory_ws, "stream.completed")
+                assert any(
+                    event.get("type") == "message.created"
+                    and event.get("payload", {}).get("author_type") == "neko"
+                    for event in memory_events
+                )
+                dependency = _wait_for_dependency(
+                    app.state.room_service,
+                    "memory",
+                    "degraded",
+                    error_code="RuntimeError",
+                )
+                assert dependency["error_code"] == "RuntimeError"
+                assert len(memory_write_failures) == (
+                    app.state.room_service.memory_write_attempts
+                )
+                _drain_until(memory_ws, "speech.ready")
+
+                memory.build_context = fake_memory_context
+                memory.context_degraded = False
+                memory.context_error_code = None
+                memory.record_interaction = fake_memory_write
+                memory.record_mentions = fake_memory_write
+                memory_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-memory-recovery",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                _drain_until(memory_ws, "stream.completed")
+                _drain_until(memory_ws, "speech.ready")
+                _wait_for_dependency(app.state.room_service, "memory", "ready")
+
+            speech_failures: list[str] = []
+
+            async def failing_speech(_text):
+                speech_failures.append("failed")
+                raise RuntimeError("verification TTS outage")
+
+            app.state.room_service.speech.synthesize = failing_speech
+            room = client.get("/api/v1/rooms/main").json()
+            with client.websocket_connect(
+                f"/ws/rooms/main?after_seq={room['last_seq']}"
+            ) as speech_ws:
+                _drain_until(speech_ws, "presence.updated")
+                speech_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-tts-failure",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                speech_events = _drain_until(speech_ws, "stream.completed")
+                assert any(
+                    event.get("type") == "message.created"
+                    and event.get("payload", {}).get("author_type") == "neko"
+                    for event in speech_events
+                )
+                _drain_until(speech_ws, "speech.failed")
+                dependency = _wait_for_dependency(
+                    app.state.room_service, "tts", "degraded"
+                )
+                assert dependency["error_code"] == "RuntimeError"
+                assert len(speech_failures) == app.state.room_service.tts_attempts
+
+                app.state.room_service.speech.synthesize = fake_speech
+                speech_ws.send_json(
+                    {
+                        "type": "chat.send",
+                        "request_id": "req-tts-recovery",
+                        "payload": {"text": "NEKO 你好"},
+                    }
+                )
+                _drain_until(speech_ws, "stream.completed")
+                _drain_until(speech_ws, "speech.ready")
+                _wait_for_dependency(app.state.room_service, "tts", "ready")
+
+            dependency_state = client.get("/api/v1/admin/state").json()[
+                "dependencies"
+            ]
+            assert set(dependency_state) == {"llm", "memory", "tts"}
+            assert all(
+                dependency_state[name]["status"] == "ready"
+                for name in dependency_state
+            )
 
             controls = client.put(
                 "/api/v1/admin/room-controls",

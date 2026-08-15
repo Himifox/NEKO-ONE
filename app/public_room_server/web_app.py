@@ -6,7 +6,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -22,6 +22,32 @@ from main_routers.room_websocket_router import router as websocket_router
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_ROOT = REPO_ROOT / "frontend" / "public-room"
 ADMIN_FRONTEND_ROOT = REPO_ROOT / "frontend" / "public-admin"
+
+CONTENT_SECURITY_POLICY = "; ".join(
+    (
+        "default-src 'self'",
+        "base-uri 'none'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "script-src 'self'",
+        "style-src 'self'",
+        "img-src 'self' data: blob:",
+        "media-src 'self' blob:",
+        "font-src 'self'",
+        "connect-src 'self' ws: wss:",
+        "worker-src 'self' blob:",
+        "manifest-src 'self'",
+    )
+)
+
+
+def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        value = default
+    return max(minimum, min(value, maximum))
 
 
 def _data_dir() -> Path:
@@ -55,6 +81,49 @@ def create_app() -> FastAPI:
     application.state.guest_sessions = sessions
     application.state.admin_sessions = admin_sessions
     application.state.public_avatar = avatar
+
+    max_http_body_bytes = _bounded_env_int(
+        "NEKO_PUBLIC_MAX_HTTP_BODY_BYTES", 32768, 1024, 1048576
+    )
+
+    @application.middleware("http")
+    async def public_security_boundary(request: Request, call_next) -> Response:
+        early_status: int | None = None
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                declared_length = int(content_length)
+            except ValueError:
+                declared_length = -1
+            if declared_length < 0:
+                early_status = 400
+            elif declared_length > max_http_body_bytes:
+                early_status = 413
+
+        response = (
+            Response(status_code=early_status)
+            if early_status is not None
+            else await call_next(request)
+        )
+        response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        )
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        if request.url.path == "/admin" or request.url.path.startswith(
+            "/api/v1/admin/"
+        ):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     application.include_router(public_router)
     application.include_router(admin_router)
     application.include_router(websocket_router)
