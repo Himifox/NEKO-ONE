@@ -15,8 +15,10 @@ concurrency:
 
 jobs:
   linux-verification:
-    name: Linux verification
+    name: Debian 12 verification
     runs-on: ubuntu-latest
+    container:
+      image: debian:12-slim
     timeout-minutes: 30
     env:
       NEKO_LANGUAGE: zh
@@ -24,6 +26,11 @@ jobs:
       UV_FROZEN: "1"
 
     steps:
+      - name: Prepare Debian container
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git
+
       - name: Check out source
         uses: actions/checkout@v7
 
