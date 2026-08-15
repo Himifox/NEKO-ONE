@@ -16,7 +16,7 @@ concurrency:
 jobs:
   linux-verification:
     name: Debian 12 verification
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # GitHub-managed Docker host; all run steps use the Debian container below.
     container:
       image: debian:12-slim
     timeout-minutes: 30

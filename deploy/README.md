@@ -1,11 +1,13 @@
-# NEKO Public Room deployment
+# NEKO Public Room — Debian 12 deployment
 
-The first release runs two loopback-only Python services and one public reverse
-proxy. Only Nginx listens on the public network.
+The supported first-release target is Debian 12. It runs two loopback-only
+Python services and one public Nginx reverse proxy; only Nginx listens on the
+public network.
 
-1. Install Python 3.11 and `uv`, create the `neko` system user, copy this tree to
-   `/opt/neko-one`, then run `uv venv --python 3.11` and
-   `uv pip install -r requirements-public.txt`.
+1. Install Debian packages `ca-certificates`, `curl`, `nginx`, `python3.11` and
+   `python3.11-venv`, install `uv`, create the `neko` system user, and copy this
+   tree to `/opt/neko-one`. Run `sudo -u neko uv sync --locked --no-dev` from
+   that directory so deployment uses the committed lock file.
 2. Copy `.env.public.example` to `/etc/neko-public.env`, replace every secret and
    domain, set `NEKO_PUBLIC_MIN_FREE_MIB` to the disk headroom required by the
    local retention/backup policy, then set owner `root:neko` and mode `0640`.
@@ -47,17 +49,17 @@ The default CSP refuses every iframe parent. If the room is later embedded in a
 blog, replace `frame-ancestors 'none'` in both the application policy and Nginx
 with the exact HTTPS blog origin. Never use `*`.
 
-Before deployment, run:
+Before deployment, run from `/opt/neko-one` as the `neko` service user:
 
-```powershell
-uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_public_room.py
-uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_memory_runtime.py
-uv --cache-dir .uv-cache run --active --no-sync python scripts/check_public_boundary.py
-uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_deployment_security.py
-uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_room_capacity.py
-uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_backup_restore.py
-uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_public_assets.py
-uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_provider_acceptance.py
+```bash
+sudo -u neko uv run --locked python scripts/verify_public_room.py
+sudo -u neko uv run --locked python scripts/verify_memory_runtime.py
+sudo -u neko uv run --locked python scripts/check_public_boundary.py
+sudo -u neko uv run --locked python scripts/verify_deployment_security.py
+sudo -u neko uv run --locked python scripts/verify_room_capacity.py
+sudo -u neko uv run --locked python scripts/verify_backup_restore.py
+sudo -u neko uv run --locked python scripts/verify_public_assets.py
+sudo -u neko uv run --locked python scripts/verify_provider_acceptance.py
 ```
 
 The deployment-security script validates the example files, not the installed Nginx binary.

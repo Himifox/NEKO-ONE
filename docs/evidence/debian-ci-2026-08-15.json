@@ -1,0 +1,30 @@
+{
+  "schema": "neko-one.debian-ci-evidence.v1",
+  "ok": true,
+  "environment": {
+    "target_container": "debian:12-slim",
+    "python": "3.11",
+    "dependency_mode": "uv sync --locked --no-dev"
+  },
+  "github_actions": {
+    "repository": "Himifox/NEKO-ONE",
+    "run_id": 31891386206,
+    "job_id": 95028058660,
+    "head_sha": "7fb2549",
+    "started_at": "2026-08-15T14:58:18Z",
+    "completed_at": "2026-08-15T14:58:58Z",
+    "conclusion": "success",
+    "url": "https://github.com/Himifox/NEKO-ONE/actions/runs/31891386206"
+  },
+  "verified_steps": [
+    "locked dependency sync",
+    "public room behavior",
+    "Memory startup and local persistence",
+    "public boundary and deployment security",
+    "backup and isolated restore",
+    "public assets and provider acceptance harness",
+    "short room capacity baseline",
+    "compile and distribution build"
+  ],
+  "scope_note": "This proves deterministic verification on Debian 12 with synthetic data. It does not claim a production backup was restored on a separate host and does not call paid providers."
+}

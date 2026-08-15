@@ -1,10 +1,12 @@
 # 备份与恢复
 
-> 状态：一致性工具和本机隔离恢复已完成；独立机器恢复尚未执行
+> 状态：一致性工具和本机隔离恢复已完成；独立 Debian 主机恢复尚未执行
 >
 > 更新日期：2026-08-15
 
 `.github/workflows/verify-public-runtime.yml` 会在独立的 GitHub Actions `debian:12-slim` 容器中，用合成的公共数据库、Memory 数据和私有配置执行备份、校验、隔离恢复、篡改检测和路径穿越拒绝。该检查证明工具可在目标 Debian 系列环境运行，但不替代使用生产备份完成的异机恢复演练。
+
+2026-08-15 的 Debian 12 自动演练已通过，记录见 [`debian-ci-2026-08-15.json`](../evidence/debian-ci-2026-08-15.json) 和 [GitHub Actions 运行 #31891386206](https://github.com/Himifox/NEKO-ONE/actions/runs/31891386206)。
 
 ## 恢复目标
 
@@ -95,7 +97,7 @@ result/2026-08-15T120000Z/
 
 ## 独立机器恢复演练
 
-路线图门槛只能由一台不共享原数据卷的 Linux 主机证明。每次演练记录：
+路线图门槛只能由一台不共享原数据卷的 Debian 主机证明。每次演练记录：
 
 1. 备份对象 ID、创建时间、应用 commit、Persona 版本和加密方式；
 2. 恢复主机、操作人、开始/完成时间、RTO 和总字节数；

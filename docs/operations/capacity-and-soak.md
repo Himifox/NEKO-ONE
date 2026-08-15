@@ -79,7 +79,7 @@ uv --cache-dir .uv-cache run --locked python scripts/verify_room_capacity.py `
 | 25 | 1800 | 1801.016s | 16ms | 1 | 1 | 5400 | 0.245/0.156 MiB | 28 | 是 | 0 |
 | 50 | 1800 | 1800.032s | 16ms | 1 | 1 | 5400 | 0.336/0.213 MiB | 53 | 是 | 0 |
 
-三个档位均为 `3600` 条 SQLite 消息、`5400` 个事件和 `1800` 个完成 turn；drain 与 WAL 最终均为 0。任务高水位随连接数线性变化，断开后 writer 全部回收。该证据满足第一阶段的 10/25/50 人 30 分钟核心容量门槛，但不替代 24 小时 soak 和目标 Linux/VPS 公网链路验收。
+三个档位均为 `3600` 条 SQLite 消息、`5400` 个事件和 `1800` 个完成 turn；drain 与 WAL 最终均为 0。任务高水位随连接数线性变化，断开后 writer 全部回收。该证据满足第一阶段的 10/25/50 人 30 分钟核心容量门槛，但不替代 24 小时 soak 和目标 Debian/VPS 公网链路验收。
 
 ## 24 小时核心 soak
 
@@ -106,7 +106,7 @@ uv --cache-dir .uv-cache run --locked python scripts/verify_room_capacity.py `
 
 ## 预生产补充验收
 
-核心 soak 通过后，还必须在目标 Linux/VPS 拓扑补充：
+核心 soak 通过后，还必须在目标 Debian/VPS 拓扑补充：
 
 1. `nginx -t` 与外部端口扫描；
 2. 50 个真实 WSS 连接的 Origin、Cookie、重连和 429/1013 行为；
