@@ -417,18 +417,42 @@ def main() -> None:
                     }
                 )
                 _drain_until(cancellable_ws, "stream.delta")
-                cancelled = client.post(
-                    "/api/v1/admin/generation/cancel", headers=headers
-                )
-                assert cancelled.status_code == 200
-                assert cancelled.json()["cancelled"] is True
-                cancelled_events = _drain_until(cancellable_ws, "stream.failed")
-                assert any(
-                    event.get("type") == "turn.interrupted"
-                    and event.get("payload", {}).get("reason") == "admin_cancelled"
-                    for event in cancelled_events
-                )
-                assert cancelled_events[-1]["payload"]["code"] == "admin_cancelled"
+                active_room = client.get("/api/v1/rooms/main").json()
+                with client.websocket_connect(
+                    f"/ws/rooms/main?after_seq={active_room['last_seq']}"
+                ) as snapshot_ws:
+                    ready = snapshot_ws.receive_json()
+                    snapshot = snapshot_ws.receive_json()
+                    assert ready["type"] == "session.ready"
+                    assert snapshot["type"] == "stream.snapshot"
+                    assert snapshot["payload"]["text"] == "等"
+                    assert snapshot_ws.receive_json()["type"] == "presence.updated"
+
+                    cancelled = client.post(
+                        "/api/v1/admin/generation/cancel", headers=headers
+                    )
+                    assert cancelled.status_code == 200
+                    assert cancelled.json()["cancelled"] is True
+                    cancelled_events = _drain_until(
+                        cancellable_ws, "stream.failed"
+                    )
+                    assert any(
+                        event.get("type") == "turn.interrupted"
+                        and event.get("payload", {}).get("reason")
+                        == "admin_cancelled"
+                        for event in cancelled_events
+                    )
+                    assert (
+                        cancelled_events[-1]["payload"]["code"]
+                        == "admin_cancelled"
+                    )
+                    snapshot_terminal = _drain_until(
+                        snapshot_ws, "stream.failed"
+                    )
+                    assert not any(
+                        event.get("type") == "stream.delta"
+                        for event in snapshot_terminal
+                    )
 
                 app.state.room_service.engine.generate = fake_generate
                 cancellable_ws.send_json(

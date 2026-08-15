@@ -67,57 +67,73 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
         websocket, room_id=room_id, visitor_id=visitor.id
     )
     try:
-        room = await service.store.room_snapshot(room_id)
-        await service.hub.send(
-            connection,
-            {
-                "type": "session.ready",
-                "protocol_version": 1,
-                "connection_id": connection.id,
-                "room_id": room_id,
-                "visitor": {
-                    "id": visitor.id,
-                    "display_name": visitor.display_name,
-                },
-                "last_room_seq": room["last_seq"],
-                "oldest_available_seq": room["oldest_available_seq"],
-                "heartbeat_interval_ms": 25000,
-                "server_time": utc_now(),
-            },
-        )
-        replay_from = max(0, room["oldest_available_seq"] - 1)
-        if after_seq < replay_from or after_seq > room["last_seq"]:
-            await service.hub.send(
-                connection,
+        async def bootstrap_send(event: dict) -> None:
+            if await service.hub.send_wait(connection, event):
+                return
+            await websocket.close(code=1013, reason="bootstrap_too_slow")
+            raise WebSocketDisconnect(code=1013, reason="bootstrap_too_slow")
+
+        async with (
+            service.room_generation_lock(room_id),
+            service.room_event_lock(room_id),
+        ):
+            room = await service.store.room_snapshot(room_id)
+            await bootstrap_send(
                 {
-                    "type": "replay.reset",
-                    "server_time": utc_now(),
-                    "payload": {
-                        "reason": (
-                            "history_expired"
-                            if after_seq < replay_from
-                            else "sequence_ahead"
-                        ),
-                        "requested_after_seq": after_seq,
-                        "replay_from_seq": replay_from,
-                        "last_room_seq": room["last_seq"],
+                    "type": "session.ready",
+                    "protocol_version": 1,
+                    "connection_id": connection.id,
+                    "room_id": room_id,
+                    "visitor": {
+                        "id": visitor.id,
+                        "display_name": visitor.display_name,
                     },
-                },
-            )
-            after_seq = replay_from
-        missed = await service.store.list_events(room_id, after_seq, limit=1000)
-        for event in missed:
-            await service.hub.send(connection, event)
-        active = service.active_generation(room_id)
-        if active is not None:
-            await service.hub.send(
-                connection,
-                {
-                    "type": "stream.snapshot",
+                    "last_room_seq": room["last_seq"],
+                    "oldest_available_seq": room["oldest_available_seq"],
+                    "heartbeat_interval_ms": 25000,
                     "server_time": utc_now(),
-                    "payload": active.snapshot(),
-                },
+                }
             )
+            replay_from = max(0, room["oldest_available_seq"] - 1)
+            if after_seq < replay_from or after_seq > room["last_seq"]:
+                await bootstrap_send(
+                    {
+                        "type": "replay.reset",
+                        "server_time": utc_now(),
+                        "payload": {
+                            "reason": (
+                                "history_expired"
+                                if after_seq < replay_from
+                                else "sequence_ahead"
+                            ),
+                            "requested_after_seq": after_seq,
+                            "replay_from_seq": replay_from,
+                            "last_room_seq": room["last_seq"],
+                        },
+                    }
+                )
+                after_seq = replay_from
+            missed = await service.store.list_events(room_id, after_seq, limit=1000)
+            for event in missed:
+                await bootstrap_send(event)
+
+            def initial_live_events() -> list[dict]:
+                active = service.active_generation(room_id)
+                if active is None:
+                    return []
+                return [
+                    {
+                        "type": "stream.snapshot",
+                        "server_time": utc_now(),
+                        "payload": active.snapshot(),
+                    }
+                ]
+
+            if not await service.hub.activate(connection, initial_live_events):
+                await websocket.close(code=1013, reason="bootstrap_too_slow")
+                raise WebSocketDisconnect(
+                    code=1013, reason="bootstrap_too_slow"
+                )
         await service.hub.broadcast(room_id, await service.presence_event(room_id))
 
         while True:

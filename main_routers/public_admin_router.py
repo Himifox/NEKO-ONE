@@ -214,12 +214,11 @@ async def message_status(message_id: str, payload: StatusUpdate, request: Reques
     _auth(request, write=True)
     if payload.status not in {"visible", "hidden"}:
         raise HTTPException(status_code=400, detail="invalid message status")
-    event = await request.app.state.room_service.store.moderate_message(
-        message_id, payload.status
+    event = await request.app.state.room_service.moderate_message(
+        "main", message_id, payload.status
     )
     if event is None:
         raise HTTPException(status_code=404, detail="message not found")
-    await request.app.state.room_service.hub.broadcast("main", event)
     return {"ok": True, "status": payload.status}
 
 

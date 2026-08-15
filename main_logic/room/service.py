@@ -47,6 +47,8 @@ class PublicRoomService:
             lambda: deque(maxlen=32)
         )
         self._submission_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._room_event_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._generation_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._last_room_activity: dict[str, float] = defaultdict(time.monotonic)
         self._last_proactive: dict[str, float] = defaultdict(lambda: 0.0)
@@ -132,6 +134,16 @@ class PublicRoomService:
     def dependency_snapshot(self) -> dict[str, dict[str, Any]]:
         return {name: dict(state) for name, state in self.dependencies.items()}
 
+    def room_event_lock(self, room_id: str) -> asyncio.Lock:
+        """Serialize persisted event commit, live publish and connection replay."""
+
+        return self._room_event_locks[room_id]
+
+    def room_generation_lock(self, room_id: str) -> asyncio.Lock:
+        """Serialize stream state snapshots, deltas and terminal events."""
+
+        return self._generation_locks[room_id]
+
     @staticmethod
     def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
         try:
@@ -206,16 +218,17 @@ class PublicRoomService:
             else:
                 self._ensure_room_accepting_messages()
                 self._enforce_rate_limit(visitor.id)
-                message, event, duplicate = await self.store.append_user_message(
-                    room_id=room_id,
-                    visitor=visitor,
-                    request_id=normalized_request_id,
-                    content=normalized,
-                    reply_to_id=reply_to_id,
-                )
+                async with self._room_event_locks[room_id]:
+                    message, event, duplicate = await self.store.append_user_message(
+                        room_id=room_id,
+                        visitor=visitor,
+                        request_id=normalized_request_id,
+                        content=normalized,
+                        reply_to_id=reply_to_id,
+                    )
+                    await self.hub.broadcast(room_id, event)
         if not duplicate:
             self._last_room_activity[room_id] = time.monotonic()
-            await self.hub.broadcast(room_id, event)
             candidate = TurnCandidate(message=message, enqueued_monotonic=time.monotonic())
             await self.directors[room_id].enqueue(candidate)
             await self._broadcast_queue(room_id)
@@ -410,12 +423,9 @@ class PublicRoomService:
         await self._sync_proactive_task(room_id)
         if self.controls["paused"] and not previous["paused"]:
             await self.cancel_generation(room_id, reason="room_paused")
-        event = await self.store.append_event(
-            room_id,
-            "room.control.updated",
-            {"controls": dict(self.controls)},
+        await self._append_and_broadcast_event(
+            room_id, "room.control.updated", {"controls": dict(self.controls)}
         )
-        await self.hub.broadcast(room_id, event)
         await self._broadcast_queue(room_id)
         return dict(self.controls)
 
@@ -456,6 +466,23 @@ class PublicRoomService:
         )
         await self._broadcast_queue(room_id)
         return True
+
+    async def _append_and_broadcast_event(
+        self, room_id: str, event_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        async with self._room_event_locks[room_id]:
+            event = await self.store.append_event(room_id, event_type, payload)
+            await self.hub.broadcast(room_id, event)
+            return event
+
+    async def moderate_message(
+        self, room_id: str, message_id: str, status: str
+    ) -> dict[str, Any] | None:
+        async with self._room_event_locks[room_id]:
+            event = await self.store.moderate_message(message_id, status)
+            if event is not None:
+                await self.hub.broadcast(room_id, event)
+            return event
 
     async def _room_worker(self, room_id: str, director: RoomDirector) -> None:
         while True:
@@ -545,7 +572,7 @@ class PublicRoomService:
             reason_code=reason_code,
             decision=decision,
         )
-        turn_event = await self.store.append_event(
+        await self._append_and_broadcast_event(
             room_id,
             "turn.started",
             {
@@ -556,7 +583,6 @@ class PublicRoomService:
                 "reason_code": reason_code,
             },
         )
-        await self.hub.broadcast(room_id, turn_event)
         await self.hub.broadcast(
             room_id,
             {
@@ -591,20 +617,21 @@ class PublicRoomService:
                 self._mark_dependency("memory", "ready")
 
             async def on_delta(delta: str) -> None:
-                generation.text += delta
-                generation.chunk_index += 1
-                await self.hub.broadcast(
-                    room_id,
-                    {
-                        "type": "stream.delta",
-                        "server_time": utc_now(),
-                        "payload": {
-                            "generation_id": generation.id,
-                            "chunk_index": generation.chunk_index,
-                            "delta": delta,
+                async with self._generation_locks[room_id]:
+                    generation.text += delta
+                    generation.chunk_index += 1
+                    await self.hub.broadcast(
+                        room_id,
+                        {
+                            "type": "stream.delta",
+                            "server_time": utc_now(),
+                            "payload": {
+                                "generation_id": generation.id,
+                                "chunk_index": generation.chunk_index,
+                                "delta": delta,
+                            },
                         },
-                    },
-                )
+                    )
 
             generation.phase = "generating"
             try:
@@ -635,48 +662,51 @@ class PublicRoomService:
             # From this point forward, cancellation is cooperative-only. In
             # particular, never cancel the SQLite commit thread after it has
             # started and then mark the same turn as interrupted.
-            generation.phase = "finalizing"
-            await self.hub.broadcast(
-                room_id,
-                {
-                    "type": "avatar.state",
-                    "server_time": utc_now(),
-                    "payload": {
-                        "generation_id": generation.id,
-                        "emotion": emotion,
-                        "speaking": False,
+            async with self._generation_locks[room_id]:
+                generation.phase = "finalizing"
+                await self.hub.broadcast(
+                    room_id,
+                    {
+                        "type": "avatar.state",
+                        "server_time": utc_now(),
+                        "payload": {
+                            "generation_id": generation.id,
+                            "emotion": emotion,
+                            "speaking": False,
+                        },
                     },
-                },
-            )
-            message, message_event = await self.store.append_assistant_message(
-                room_id=room_id,
-                character_id="neko",
-                display_name=character_name,
-                content=final_text,
-                reply_to_id=None if is_proactive else candidate.message.id,
-                metadata={
-                    "turn_id": turn_id,
-                    "generation_id": generation.id,
-                    "target_visitor_id": None if is_proactive else visitor.id,
-                    "emotion": emotion,
-                    "memory_scope": self.memory.scope_metadata(visitor),
-                },
-            )
-            await self.hub.broadcast(room_id, message_event)
-            await self.hub.broadcast(
-                room_id,
-                {
-                    "type": "stream.completed",
-                    "server_time": utc_now(),
-                    "payload": {
-                        "generation_id": generation.id,
-                        "message_id": message.id,
-                        "room_seq": message.room_seq,
+                )
+                async with self._room_event_locks[room_id]:
+                    message, message_event = await self.store.append_assistant_message(
+                        room_id=room_id,
+                        character_id="neko",
+                        display_name=character_name,
+                        content=final_text,
+                        reply_to_id=None if is_proactive else candidate.message.id,
+                        metadata={
+                            "turn_id": turn_id,
+                            "generation_id": generation.id,
+                            "target_visitor_id": None if is_proactive else visitor.id,
+                            "emotion": emotion,
+                            "memory_scope": self.memory.scope_metadata(visitor),
+                        },
+                    )
+                    await self.hub.broadcast(room_id, message_event)
+                await self.hub.broadcast(
+                    room_id,
+                    {
+                        "type": "stream.completed",
+                        "server_time": utc_now(),
+                        "payload": {
+                            "generation_id": generation.id,
+                            "message_id": message.id,
+                            "room_seq": message.room_seq,
+                        },
                     },
-                },
-            )
-            await self.store.finish_turn(turn_id, status="completed")
-            generation.phase = "completed"
+                )
+                await self.store.finish_turn(turn_id, status="completed")
+                generation.phase = "completed"
+                self._active_generations.pop(room_id, None)
             self._last_room_activity[room_id] = time.monotonic()
             self._spawn_background_task(
                 self._publish_speech(
@@ -698,56 +728,62 @@ class PublicRoomService:
                     name="public-room-memory-write",
                 )
         except asyncio.CancelledError:
-            generation.phase = "interrupted"
-            reason = generation.cancel_reason or "cancelled"
-            await self.store.finish_turn(
-                turn_id, status="interrupted", error_code=reason
-            )
-            interrupted_event = await self.store.append_event(
-                room_id,
-                "turn.interrupted",
-                {
-                    "turn_id": turn_id,
-                    "generation_id": generation.id,
-                    "reason": reason,
-                },
-            )
-            await self.hub.broadcast(room_id, interrupted_event)
-            await self.hub.broadcast(
-                room_id,
-                {
-                    "type": "stream.failed",
-                    "server_time": utc_now(),
-                    "payload": {
+            async with self._generation_locks[room_id]:
+                generation.phase = "interrupted"
+                reason = generation.cancel_reason or "cancelled"
+                await self.store.finish_turn(
+                    turn_id, status="interrupted", error_code=reason
+                )
+                await self._append_and_broadcast_event(
+                    room_id,
+                    "turn.interrupted",
+                    {
+                        "turn_id": turn_id,
                         "generation_id": generation.id,
-                        "code": reason,
+                        "reason": reason,
                     },
-                },
-            )
+                )
+                await self.hub.broadcast(
+                    room_id,
+                    {
+                        "type": "stream.failed",
+                        "server_time": utc_now(),
+                        "payload": {
+                            "generation_id": generation.id,
+                            "code": reason,
+                        },
+                    },
+                )
+                self._active_generations.pop(room_id, None)
             raise
         except Exception as exc:
-            generation.phase = "failed"
             logger.exception("public-room generation failed")
-            await self.store.finish_turn(
-                turn_id, status="failed", error_code=type(exc).__name__
-            )
-            interrupted_event = await self.store.append_event(
-                room_id,
-                "turn.interrupted",
-                {"turn_id": turn_id, "generation_id": generation.id, "reason": "generation_failed"},
-            )
-            await self.hub.broadcast(room_id, interrupted_event)
-            await self.hub.broadcast(
-                room_id,
-                {
-                    "type": "stream.failed",
-                    "server_time": utc_now(),
-                    "payload": {
+            async with self._generation_locks[room_id]:
+                generation.phase = "failed"
+                await self.store.finish_turn(
+                    turn_id, status="failed", error_code=type(exc).__name__
+                )
+                await self._append_and_broadcast_event(
+                    room_id,
+                    "turn.interrupted",
+                    {
+                        "turn_id": turn_id,
                         "generation_id": generation.id,
-                        "code": "generation_failed",
+                        "reason": "generation_failed",
                     },
-                },
-            )
+                )
+                await self.hub.broadcast(
+                    room_id,
+                    {
+                        "type": "stream.failed",
+                        "server_time": utc_now(),
+                        "payload": {
+                            "generation_id": generation.id,
+                            "code": "generation_failed",
+                        },
+                    },
+                )
+                self._active_generations.pop(room_id, None)
         finally:
             self._active_generations.pop(room_id, None)
 

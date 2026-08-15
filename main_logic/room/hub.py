@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from uuid import uuid4
 
 from fastapi import WebSocket
@@ -18,6 +20,7 @@ class RoomConnection:
     websocket: WebSocket
     queue: asyncio.Queue[str]
     writer_task: asyncio.Task[None] | None = None
+    active: bool = False
 
 
 class RoomConnectionHub:
@@ -59,10 +62,47 @@ class RoomConnectionHub:
         payload = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
         return await self._enqueue(connection, payload)
 
+    async def send_wait(
+        self, connection: RoomConnection, event: dict, *, timeout: float = 5.0
+    ) -> bool:
+        payload = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+        try:
+            await asyncio.wait_for(connection.queue.put(payload), timeout=timeout)
+            return True
+        except TimeoutError:
+            return False
+
+    async def activate(
+        self,
+        connection: RoomConnection,
+        initial_events: Callable[[], list[dict[str, Any]]] | None = None,
+    ) -> bool:
+        """Atomically publish bootstrap state before enabling live fan-out."""
+
+        async with self._lock:
+            room = self._rooms.get(connection.room_id, {})
+            if room.get(connection.id) is not connection:
+                return False
+            events = initial_events() if initial_events is not None else []
+            payloads = [
+                json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+                for event in events
+            ]
+            if connection.queue.qsize() + len(payloads) > self._queue_size:
+                return False
+            for payload in payloads:
+                connection.queue.put_nowait(payload)
+            connection.active = True
+            return True
+
     async def broadcast(self, room_id: str, event: dict) -> None:
         payload = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
         async with self._lock:
-            connections = list(self._rooms.get(room_id, {}).values())
+            connections = [
+                connection
+                for connection in self._rooms.get(room_id, {}).values()
+                if connection.active
+            ]
         overflowed: list[RoomConnection] = []
         for connection in connections:
             if not await self._enqueue(connection, payload):
