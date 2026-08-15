@@ -188,6 +188,7 @@ uv run --locked python scripts/verify_deployment_security.py
 uv run --locked python scripts/verify_room_capacity.py
 uv run --locked python scripts/verify_backup_restore.py
 uv run --locked python scripts/verify_public_assets.py
+uv run --locked python scripts/verify_provider_acceptance.py
 node --check frontend/public-room/app.js
 node --check frontend/public-room/live2d.js
 node --check frontend/public-admin/app.js
@@ -196,6 +197,8 @@ node --check frontend/public-admin/app.js
 `verify_public_room.py` 使用假的模型、记忆和 TTS 实现，不会调用真实供应商或污染正式记忆。它覆盖多人连接、消息序号、幂等发送、断线续传、管理审核、封禁、限额、应急控制、数据清理、过期回放重置，以及 LLM 超时、Memory 故障和 TTS 失败后的降级与恢复。`verify_room_capacity.py` 进一步验证 10/25/50 人并发、严格事件顺序、单 generation、慢客户端隔离和任务回收；长时命令及门槛见[容量与稳定性运维手册](docs/operations/capacity-and-soak.md)。`verify_backup_restore.py` 覆盖活动 SQLite 在线备份、清单校验、隔离恢复、损坏和路径逃逸拒绝；生产加密与异机演练见[备份恢复手册](docs/operations/backup-and-restore.md)。
 
 `verify_public_assets.py` 对浏览器运行库逐文件核对版本、SHA-256 和许可证，并阻止无授权模型、声音或字体重新进入公开发行物。
+
+真实供应商不会在普通回归中调用。上线前先执行无费用预检，再通过显式费用确认运行一次隔离的 LLM、Memory、TTS 验收，详见[真实供应商验收手册](docs/operations/provider-acceptance.md)。
 
 ## 仓库边界
 

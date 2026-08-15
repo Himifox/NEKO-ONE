@@ -48,6 +48,7 @@ uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_deployment
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_room_capacity.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_backup_restore.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_public_assets.py
+uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_provider_acceptance.py
 ```
 
 The deployment-security script validates the example files, not the installed Nginx binary.
@@ -63,3 +64,8 @@ The backup command creates a plaintext staging snapshot and must not be copied
 off-host until it is encrypted. Exact create, verify, isolated restore and
 separate-host drill steps are in
 [`docs/operations/backup-and-restore.md`](../docs/operations/backup-and-restore.md).
+
+These deterministic checks do not spend provider quota. Run the redacted
+preflight and explicitly acknowledged real LLM/Memory/TTS smoke from
+[`docs/operations/provider-acceptance.md`](../docs/operations/provider-acceptance.md)
+before public acceptance.
