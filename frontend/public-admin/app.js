@@ -1,9 +1,29 @@
 (() => {
   "use strict";
   let csrf = "";
+  let mutationInFlight = false;
   const loginCard = document.getElementById("login-card");
   const dashboard = document.getElementById("dashboard");
   const notice = document.getElementById("notice");
+  const loginError = document.getElementById("login-error");
+  const adminPassword = document.getElementById("admin-password");
+
+  class ApiError extends Error {
+    constructor(message, status) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+    }
+  }
+
+  function responseError(detail, fallback) {
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (Array.isArray(detail)) {
+      const messages = detail.map((item) => item?.msg).filter(Boolean);
+      if (messages.length) return messages.join("；");
+    }
+    return fallback;
+  }
 
   async function api(path, options = {}) {
     const method = options.method || "GET";
@@ -12,8 +32,36 @@
     if (options.body) headers["Content-Type"] = "application/json";
     const response = await fetch(`/api/v1/admin${path}`, { ...options, method, headers, credentials: "same-origin" });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    if (!response.ok) {
+      throw new ApiError(
+        responseError(body.detail, `HTTP ${response.status}`),
+        response.status,
+      );
+    }
     return body;
+  }
+
+  function setNotice(message, state = "idle") {
+    notice.textContent = message;
+    notice.dataset.state = state;
+  }
+
+  function requireLogin(message = "管理会话已失效，请重新登录") {
+    csrf = "";
+    mutationInFlight = false;
+    dashboard.removeAttribute("aria-busy");
+    dashboard.hidden = true;
+    loginCard.hidden = false;
+    loginError.textContent = message;
+    adminPassword.focus();
+  }
+
+  function reportError(error, prefix = "操作失败") {
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      requireLogin();
+      return;
+    }
+    setNotice(`${prefix}：${error?.message || "未知错误"}`, "error");
   }
 
   function button(label, action, id, danger = false) {
@@ -94,25 +142,72 @@
     state.audit.forEach((entry) => audit.append(row(entry.action, `${entry.target_type}:${entry.target_id}`, [])));
   }
 
-  async function refresh() { render(await api("/state")); }
+  async function refresh({ announce = false } = {}) {
+    try {
+      render(await api("/state"));
+      if (announce) setNotice("状态已刷新", "success");
+      return true;
+    } catch (error) {
+      reportError(error, "刷新失败");
+      return false;
+    }
+  }
+
   async function mutate(path, method, body) {
-    notice.textContent = "处理中…";
-    await api(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
-    notice.textContent = "操作完成";
-    await refresh();
+    if (mutationInFlight) return false;
+    mutationInFlight = true;
+    dashboard.setAttribute("aria-busy", "true");
+    setNotice("处理中…", "pending");
+    let applied = false;
+    try {
+      await api(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+      applied = true;
+      render(await api("/state"));
+      setNotice("操作完成", "success");
+      return true;
+    } catch (error) {
+      reportError(error, applied ? "操作已提交，但状态刷新失败" : "操作失败");
+      return false;
+    } finally {
+      mutationInFlight = false;
+      dashboard.removeAttribute("aria-busy");
+    }
   }
 
   document.getElementById("login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const submit = event.currentTarget.querySelector("button[type='submit']");
+    submit.disabled = true;
+    loginError.textContent = "";
     try {
-      const result = await api("/session", { method: "POST", body: JSON.stringify({ password: document.getElementById("admin-password").value }) });
-      csrf = result.csrf; loginCard.hidden = true; dashboard.hidden = false; await refresh();
-    } catch (error) { document.getElementById("login-error").textContent = error.message; }
+      const result = await api("/session", { method: "POST", body: JSON.stringify({ password: adminPassword.value }) });
+      csrf = result.csrf;
+      adminPassword.value = "";
+      loginCard.hidden = true;
+      dashboard.hidden = false;
+      await refresh();
+    } catch (error) {
+      loginError.textContent = error?.message || "登录失败";
+    } finally {
+      submit.disabled = false;
+    }
   });
-  document.getElementById("refresh").addEventListener("click", refresh);
-  document.getElementById("logout").addEventListener("click", async () => { await api("/session", { method: "DELETE" }); location.reload(); });
+  document.getElementById("refresh").addEventListener("click", () => refresh({ announce: true }));
+  document.getElementById("logout").addEventListener("click", async () => {
+    if (mutationInFlight) return;
+    try {
+      await api("/session", { method: "DELETE" });
+      location.reload();
+    } catch (error) {
+      reportError(error, "退出失败");
+    }
+  });
   document.getElementById("save-persona").addEventListener("click", () => mutate("/persona", "PUT", { system_prompt: document.getElementById("persona").value }));
-  document.getElementById("add-fact").addEventListener("click", () => mutate("/memory/room-facts", "POST", { text: document.getElementById("room-fact").value, importance: Number(document.getElementById("fact-importance").value) }));
+  document.getElementById("add-fact").addEventListener("click", async () => {
+    const fact = document.getElementById("room-fact");
+    const saved = await mutate("/memory/room-facts", "POST", { text: fact.value, importance: Number(document.getElementById("fact-importance").value) });
+    if (saved) fact.value = "";
+  });
   document.getElementById("save-limits").addEventListener("click", () => mutate("/limits", "PUT", {
     max_message_chars: Number(document.getElementById("max-message-chars").value),
     messages_per_window: Number(document.getElementById("messages-per-window").value),
@@ -146,5 +241,10 @@
     }
   });
 
-  api("/session").then(async (session) => { csrf = session.csrf; loginCard.hidden = true; dashboard.hidden = false; await refresh(); }).catch(() => {});
+  api("/session").then(async (session) => {
+    csrf = session.csrf;
+    loginCard.hidden = true;
+    dashboard.hidden = false;
+    await refresh();
+  }).catch(() => {});
 })();

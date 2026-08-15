@@ -28,7 +28,7 @@ jobs:
       - name: Prepare Debian container
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git nginx openssl
+          apt-get install -y --no-install-recommends ca-certificates curl git nginx nodejs openssl
 
       - name: Check out source
         uses: actions/checkout@v7
@@ -76,6 +76,12 @@ jobs:
         run: |
           uv run --locked python scripts/verify_public_assets.py
           uv run --locked python scripts/verify_provider_acceptance.py
+
+      - name: Verify browser scripts
+        run: |
+          node --check frontend/public-room/app.js
+          node --check frontend/public-room/live2d.js
+          node --check frontend/public-admin/app.js
 
       - name: Verify short room capacity baseline
         run: uv run --locked python scripts/verify_room_capacity.py

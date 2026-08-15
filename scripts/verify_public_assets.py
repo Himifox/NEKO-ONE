@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 
@@ -33,6 +34,17 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _assert_frontend_dom_contract(html_path: str, script_path: str) -> None:
+    html = (ROOT / html_path).read_text("utf-8")
+    script = (ROOT / script_path).read_text("utf-8")
+    ids = set(re.findall(r'\bid=["\']([^"\']+)["\']', html))
+    references = set(
+        re.findall(r'document\.getElementById\(["\']([^"\']+)["\']\)', script)
+    )
+    missing = sorted(references - ids)
+    assert not missing, f"{script_path} references missing DOM ids: {missing}"
 
 
 def main() -> None:
@@ -99,6 +111,26 @@ def main() -> None:
     )
     positions = [page.index(token) for token in ordered]
     assert positions == sorted(positions)
+    _assert_frontend_dom_contract(
+        "frontend/public-room/index.html", "frontend/public-room/app.js"
+    )
+    _assert_frontend_dom_contract(
+        "frontend/public-admin/index.html", "frontend/public-admin/app.js"
+    )
+    admin_page = (ROOT / "frontend" / "public-admin" / "index.html").read_text(
+        "utf-8"
+    )
+    assert '<button type="submit">登录</button>' in admin_page
+    public_script = (ROOT / "frontend" / "public-room" / "app.js").read_text(
+        "utf-8"
+    )
+    for token in (
+        'url.origin !== location.origin',
+        'url.pathname.startsWith("/speech-assets/")',
+        'window.addEventListener("pagehide"',
+        "state.socket !== socket",
+    ):
+        assert token in public_script, f"missing public client lifecycle guard: {token}"
     environment = (ROOT / ".env.public.example").read_text("utf-8")
     assert "NEKO_PUBLIC_LIVE2D_MODEL_NAME=\n" in environment
     assert "NEKO_PUBLIC_LIVE2D_MODEL_FILE=\n" in environment
@@ -111,7 +143,7 @@ def main() -> None:
         assert token in notice
     print(
         "public asset verification passed: 3 audited runtimes, "
-        "no bundled model, voice, or font"
+        "no bundled model, voice, or font; frontend DOM contracts valid"
     )
 
 

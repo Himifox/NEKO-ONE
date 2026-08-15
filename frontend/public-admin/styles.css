@@ -28,5 +28,9 @@ button.ghost { color: #d9c8ed; background: #28202f; } button.danger { color: #ff
 .row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(180px, 2fr) auto; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #30283a; }
 .row:first-child { border-top: 0; } .row small { color: #a89caf; overflow-wrap: anywhere; }
 .actions { display: flex; gap: 8px; } .actions button { padding: 7px 9px; font-size: 12px; }
-.error, #notice { color: #f59aa9; min-height: 1.4em; }
+.error, #notice[data-state="error"] { color: #f59aa9; min-height: 1.4em; }
+#notice { min-height: 1.4em; color: #c8bad2; }
+#notice[data-state="success"] { color: #9fe3bd; }
+#notice[data-state="pending"] { color: #e5c88d; }
+#dashboard[aria-busy="true"] button { pointer-events: none; opacity: .58; }
 @media (max-width: 760px) { .grid, .retention-grid, .dependency-grid { grid-template-columns: 1fr; } .topbar, .topbar > div:last-child { align-items: flex-start; flex-wrap: wrap; } .row { grid-template-columns: 1fr; } }
