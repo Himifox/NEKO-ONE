@@ -103,6 +103,13 @@ class RoomConnectionHub:
         async with self._lock:
             return len(self._rooms.get(room_id, {}))
 
+    async def online_visitor_ids(self, room_id: str) -> set[str]:
+        async with self._lock:
+            return {
+                connection.visitor_id
+                for connection in self._rooms.get(room_id, {}).values()
+            }
+
     async def disconnect_visitor(self, visitor_id: str) -> int:
         async with self._lock:
             connections = [

@@ -7,6 +7,7 @@ import logging
 import os
 import time
 from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -39,6 +40,7 @@ class PublicRoomService:
         self.directors: dict[str, RoomDirector] = {}
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._proactive_tasks: dict[str, asyncio.Task[None]] = {}
+        self._retention_task: asyncio.Task[None] | None = None
         self._active_turn_tasks: dict[str, asyncio.Task[None]] = {}
         self._active_generations: dict[str, ActiveGeneration] = {}
         self._recent_submissions: dict[str, deque[float]] = defaultdict(
@@ -50,6 +52,7 @@ class PublicRoomService:
         self._last_proactive: dict[str, float] = defaultdict(lambda: 0.0)
         self._started = False
         self._shutdown_lock = asyncio.Lock()
+        self._cleanup_lock = asyncio.Lock()
         self._room_resumed = asyncio.Event()
         self._room_resumed.set()
         self.limits = {
@@ -65,6 +68,33 @@ class PublicRoomService:
             )
             == "1",
         }
+        self.retention = {
+            "message_days": self._env_int(
+                "NEKO_PUBLIC_MESSAGE_RETENTION_DAYS", 30, 1, 3650
+            ),
+            "visitor_days": self._env_int(
+                "NEKO_PUBLIC_VISITOR_RETENTION_DAYS", 90, 1, 3650
+            ),
+            "audit_days": self._env_int(
+                "NEKO_PUBLIC_AUDIT_RETENTION_DAYS", 180, 7, 3650
+            ),
+            "speech_hours": self._env_int(
+                "NEKO_PUBLIC_SPEECH_RETENTION_HOURS", 24, 1, 8760
+            ),
+            "cleanup_interval_minutes": self._env_int(
+                "NEKO_PUBLIC_CLEANUP_INTERVAL_MINUTES", 60, 5, 1440
+            ),
+        }
+        self._apply_retention(self.retention)
+        self.last_cleanup: dict[str, Any] | None = None
+
+    @staticmethod
+    def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+        try:
+            value = int(os.environ.get(name, str(default)))
+        except ValueError:
+            value = default
+        return max(minimum, min(value, maximum))
 
     async def start(self) -> None:
         if self._started:
@@ -76,7 +106,16 @@ class PublicRoomService:
         stored_controls = await self.store.get_setting("room_controls", {})
         if isinstance(stored_controls, dict):
             self._apply_controls(stored_controls)
+        stored_retention = await self.store.get_setting("retention_policy", {})
+        if isinstance(stored_retention, dict):
+            self._apply_retention(stored_retention)
+        stored_cleanup = await self.store.get_setting("retention_last_result")
+        if isinstance(stored_cleanup, dict):
+            self.last_cleanup = stored_cleanup
         await self._ensure_room_runtime("main")
+        self._retention_task = asyncio.create_task(
+            self._retention_loop(), name="public-room-retention"
+        )
         self._started = True
 
     async def _ensure_room_runtime(self, room_id: str) -> None:
@@ -169,6 +208,129 @@ class PublicRoomService:
         await self.store.set_setting("public_limits", self.limits)
         self._recent_submissions.clear()
         return dict(self.limits)
+
+    def _apply_retention(self, values: dict[str, Any]) -> None:
+        message_days = max(
+            1,
+            min(int(values.get("message_days", self.retention["message_days"])), 3650),
+        )
+        self.retention = {
+            "message_days": message_days,
+            # A visitor cannot expire before public content that still embeds
+            # its author ID and display name.
+            "visitor_days": max(
+                message_days,
+                min(
+                    int(values.get("visitor_days", self.retention["visitor_days"])),
+                    3650,
+                ),
+            ),
+            "audit_days": max(
+                7,
+                min(int(values.get("audit_days", self.retention["audit_days"])), 3650),
+            ),
+            "speech_hours": max(
+                1,
+                min(
+                    int(values.get("speech_hours", self.retention["speech_hours"])),
+                    8760,
+                ),
+            ),
+            "cleanup_interval_minutes": max(
+                5,
+                min(
+                    int(
+                        values.get(
+                            "cleanup_interval_minutes",
+                            self.retention["cleanup_interval_minutes"],
+                        )
+                    ),
+                    1440,
+                ),
+            ),
+        }
+
+    async def update_retention(self, values: dict[str, Any]) -> dict[str, int]:
+        self._apply_retention(values)
+        await self.store.set_setting("retention_policy", self.retention)
+        if self._started:
+            if self._retention_task is not None:
+                self._retention_task.cancel()
+                await asyncio.gather(self._retention_task, return_exceptions=True)
+            self._retention_task = asyncio.create_task(
+                self._retention_loop(), name="public-room-retention"
+            )
+        return dict(self.retention)
+
+    async def _retention_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self.retention["cleanup_interval_minutes"] * 60)
+            try:
+                await self.run_retention_cleanup()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("public-room retention cleanup failed")
+
+    async def run_retention_cleanup(
+        self, *, actor_id: str = "system:retention"
+    ) -> dict[str, Any]:
+        async with self._cleanup_lock:
+            started_at = utc_now()
+            now = datetime.now(timezone.utc)
+            content_before = now - timedelta(days=self.retention["message_days"])
+            visitor_before = now - timedelta(days=self.retention["visitor_days"])
+            audit_before = now - timedelta(days=self.retention["audit_days"])
+            speech_before = now - timedelta(hours=self.retention["speech_hours"])
+            stale = await self.store.list_stale_visitors(
+                visitor_before.isoformat().replace("+00:00", "Z"), limit=100
+            )
+            online = await self.hub.online_visitor_ids("main")
+            stale = [visitor for visitor in stale if visitor.id not in online]
+            forgotten: list[str] = []
+            forget_failures = 0
+            if stale:
+                try:
+                    character_name, _ = await self.engine.character()
+                except Exception:
+                    logger.exception(
+                        "retention could not resolve character for visitor forget"
+                    )
+                    forget_failures = len(stale)
+                else:
+                    for visitor in stale:
+                        try:
+                            await self.memory.forget_visitor(
+                                character_name=character_name,
+                                room_id="main",
+                                visitor_id=visitor.id,
+                            )
+                            forgotten.append(visitor.id)
+                        except Exception:
+                            forget_failures += 1
+                            logger.exception(
+                                "retention memory forget failed for visitor %s",
+                                visitor.id,
+                            )
+            counts = await self.store.cleanup_expired(
+                content_before=content_before.isoformat().replace("+00:00", "Z"),
+                audit_before=audit_before.isoformat().replace("+00:00", "Z"),
+                visitor_ids=forgotten,
+                actor_id=actor_id,
+            )
+            counts["speech_files"] = await self.speech.cleanup_before(speech_before)
+            result = {
+                "started_at": started_at,
+                "completed_at": utc_now(),
+                "policy": dict(self.retention),
+                "counts": counts,
+                "memory_forget_failures": forget_failures,
+            }
+            self.last_cleanup = result
+            await self.store.set_setting(
+                "retention_last_result", result, actor_id=actor_id
+            )
+            return result
 
     def _ensure_room_accepting_messages(self) -> None:
         if self.controls["paused"]:
@@ -620,11 +782,15 @@ class PublicRoomService:
                 task.cancel()
             for task in self._proactive_tasks.values():
                 task.cancel()
+            if self._retention_task is not None:
+                self._retention_task.cancel()
             await asyncio.gather(*self._workers.values(), return_exceptions=True)
             await asyncio.gather(
                 *self._active_turn_tasks.values(), return_exceptions=True
             )
             await asyncio.gather(*self._proactive_tasks.values(), return_exceptions=True)
+            if self._retention_task is not None:
+                await asyncio.gather(self._retention_task, return_exceptions=True)
             if self._background_tasks:
                 await asyncio.gather(*self._background_tasks, return_exceptions=True)
             await self.speech.shutdown()
@@ -632,5 +798,6 @@ class PublicRoomService:
             self._workers.clear()
             self._active_turn_tasks.clear()
             self._proactive_tasks.clear()
+            self._retention_task = None
             self.directors.clear()
             self._started = False

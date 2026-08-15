@@ -60,6 +60,20 @@
             <p id="generation-state" class="hint"></p>
           </section>
 
+          <section class="card wide">
+            <h2>数据保留与清理</h2>
+            <p class="hint">访客保留期不会短于消息保留期；只有 Memory 遗忘成功后才删除本地访客身份。</p>
+            <div class="retention-grid">
+              <label>消息/事件（天）<input id="message-retention-days" type="number" min="1" max="3650" /></label>
+              <label>访客/记忆（天）<input id="visitor-retention-days" type="number" min="1" max="3650" /></label>
+              <label>审计日志（天）<input id="audit-retention-days" type="number" min="7" max="3650" /></label>
+              <label>共享语音（小时）<input id="speech-retention-hours" type="number" min="1" max="8760" /></label>
+              <label>清理周期（分钟）<input id="cleanup-interval-minutes" type="number" min="5" max="1440" /></label>
+            </div>
+            <span class="actions"><button id="save-retention">保存保留策略</button><button id="run-retention" class="danger">立即执行清理</button></span>
+            <p id="cleanup-state" class="hint"></p>
+          </section>
+
           <section class="card wide"><h2>访客与封禁</h2><div id="visitors" class="table"></div></section>
           <section class="card wide"><h2>消息审核</h2><div id="messages" class="table"></div></section>
           <section class="card wide"><h2>审计日志</h2><div id="audit" class="table"></div></section>

@@ -43,6 +43,14 @@ class RoomControlsUpdate(BaseModel):
     proactive_enabled: bool
 
 
+class RetentionUpdate(BaseModel):
+    message_days: int = Field(ge=1, le=3650)
+    visitor_days: int = Field(ge=1, le=3650)
+    audit_days: int = Field(ge=7, le=3650)
+    speech_hours: int = Field(ge=1, le=8760)
+    cleanup_interval_minutes: int = Field(ge=5, le=1440)
+
+
 def _auth(request: Request, *, write: bool = False) -> str:
     manager = request.app.state.admin_sessions
     if not manager.enabled:
@@ -116,6 +124,8 @@ async def state(request: Request) -> dict:
             "tts_configured": service.speech.configured,
             "limits": dict(service.limits),
             "controls": dict(service.controls),
+            "retention": dict(service.retention),
+            "last_cleanup": service.last_cleanup,
             "active_generation": (
                 active_generation.snapshot() if active_generation else None
             ),
@@ -163,6 +173,24 @@ async def cancel_generation(request: Request) -> dict:
     _auth(request, write=True)
     cancelled = await request.app.state.room_service.cancel_generation("main")
     return {"ok": True, "cancelled": cancelled}
+
+
+@router.put("/retention")
+async def update_retention(payload: RetentionUpdate, request: Request) -> dict:
+    _auth(request, write=True)
+    retention = await request.app.state.room_service.update_retention(
+        payload.model_dump()
+    )
+    return {"ok": True, "retention": retention}
+
+
+@router.post("/retention/run")
+async def run_retention(request: Request) -> dict:
+    _auth(request, write=True)
+    result = await request.app.state.room_service.run_retention_cleanup(
+        actor_id="admin"
+    )
+    return {"ok": True, "result": result}
 
 
 @router.put("/visitors/{visitor_id}/status")

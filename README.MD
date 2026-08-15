@@ -141,7 +141,9 @@ NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向�
 - 管理员可以审核公共事实，也可以彻底遗忘指定访客；
 - 浏览器不会收到原始记忆文件、内部主体 ID 或 Memory Server 地址。
 
-完整机制见 [长期记忆架构](docs/architecture/memory-system.md)。
+默认保留期为消息/事件 30 天、匿名访客 90 天、审计 180 天、共享语音 24 小时。清理访客时必须先成功遗忘其 Memory；失败会保留本地身份并在下一轮重试。旧事件窗口已过期时，服务端用 `replay.reset` 明确要求客户端重建时间线。
+
+完整机制见 [长期记忆架构](docs/architecture/memory-system.md)和[数据保留 ADR](docs/design/retention-policy.md)。
 
 ## 管理后台
 
@@ -155,6 +157,7 @@ NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向�
 - 隐藏或恢复公共消息；
 - 调整消息长度、频率和窗口限额。
 - 暂停房间、切换只读、关闭主动主持或取消当前回复。
+- 设置数据保留期、查看上次清理结果或立即执行清理。
 
 登录使用签名的 `HttpOnly` Cookie，并对修改操作执行 CSRF 校验。生产环境必须启用 HTTPS 和安全 Cookie。
 
@@ -183,7 +186,7 @@ node --check frontend/public-room/live2d.js
 node --check frontend/public-admin/app.js
 ```
 
-`verify_public_room.py` 使用假的模型、记忆和 TTS 实现，不会调用真实供应商或污染正式记忆。它覆盖多人连接、消息序号、幂等发送、断线续传、管理审核、封禁与限额。
+`verify_public_room.py` 使用假的模型、记忆和 TTS 实现，不会调用真实供应商或污染正式记忆。它覆盖多人连接、消息序号、幂等发送、断线续传、管理审核、封禁、限额、应急控制、数据清理、Memory 失败重试和过期回放重置。
 
 ## 仓库边界
 

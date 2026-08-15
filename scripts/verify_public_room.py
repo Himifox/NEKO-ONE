@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -313,6 +314,132 @@ def main() -> None:
             )
             assert persisted_controls.status_code == 200
 
+            retention = client.put(
+                "/api/v1/admin/retention",
+                json={
+                    "message_days": 1,
+                    "visitor_days": 1,
+                    "audit_days": 7,
+                    "speech_hours": 1,
+                    "cleanup_interval_minutes": 5,
+                },
+                headers=headers,
+            )
+            assert retention.status_code == 200
+            assert retention.json()["retention"]["visitor_days"] == 1
+
+            forgotten_visitors: list[str] = []
+
+            async def fake_forget_visitor(**kwargs):
+                forgotten_visitors.append(kwargs["visitor_id"])
+                return {"ok": True}
+
+            app.state.room_service.memory.forget_visitor = fake_forget_visitor
+            expired_audio = app.state.room_service.speech.audio_root / "expired.wav"
+            recent_audio = app.state.room_service.speech.audio_root / "recent.wav"
+            expired_audio.write_bytes(b"expired")
+            recent_audio.write_bytes(b"recent")
+            os.utime(expired_audio, (946684800, 946684800))
+
+            old_timestamp = "2000-01-01T00:00:00Z"
+            connection = sqlite3.connect(data_dir / "public-room.db")
+            try:
+                for table, columns in {
+                    "messages": ("created_at",),
+                    "room_events": ("created_at",),
+                    "client_requests": ("created_at",),
+                    "turns": ("started_at", "completed_at"),
+                    "audit_log": ("created_at",),
+                    "visitors": ("last_seen_at",),
+                }.items():
+                    for column in columns:
+                        connection.execute(
+                            f"UPDATE {table} SET {column} = ?", (old_timestamp,)
+                        )
+                connection.commit()
+            finally:
+                connection.close()
+
+            cleanup = client.post("/api/v1/admin/retention/run", headers=headers)
+            assert cleanup.status_code == 200
+            cleanup_result = cleanup.json()["result"]
+            assert cleanup_result["counts"]["messages"] >= 1
+            assert cleanup_result["counts"]["events"] >= 1
+            assert cleanup_result["counts"]["visitors"] == 1
+            assert cleanup_result["counts"]["speech_files"] == 1
+            assert cleanup_result["memory_forget_failures"] == 0
+            assert forgotten_visitors == [visitor_id]
+            assert not expired_audio.exists()
+            assert recent_audio.exists()
+            assert client.get("/api/v1/rooms/main/messages").json()["messages"] == []
+            cleaned_state = client.get("/api/v1/admin/state").json()
+            assert cleaned_state["totals"]["messages"] == 0
+            assert cleaned_state["totals"]["visitors"] == 0
+
+            retry_visitor_id = "vis_retention_retry"
+            connection = sqlite3.connect(data_dir / "public-room.db")
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO visitors(
+                        id, display_name, status, created_at, last_seen_at
+                    ) VALUES(?, ?, 'active', ?, ?)
+                    """,
+                    (
+                        retry_visitor_id,
+                        "Retry Visitor",
+                        old_timestamp,
+                        old_timestamp,
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            async def failing_forget_visitor(**_kwargs):
+                raise RuntimeError("verification memory outage")
+
+            app.state.room_service.memory.forget_visitor = failing_forget_visitor
+            failed_cleanup = client.post(
+                "/api/v1/admin/retention/run", headers=headers
+            ).json()["result"]
+            assert failed_cleanup["memory_forget_failures"] == 1
+            assert failed_cleanup["counts"]["visitors"] == 0
+            assert client.get("/api/v1/admin/state").json()["totals"]["visitors"] == 1
+
+            app.state.room_service.memory.forget_visitor = fake_forget_visitor
+            retried_cleanup = client.post(
+                "/api/v1/admin/retention/run", headers=headers
+            ).json()["result"]
+            assert retried_cleanup["memory_forget_failures"] == 0
+            assert retried_cleanup["counts"]["visitors"] == 1
+            assert forgotten_visitors == [visitor_id, retry_visitor_id]
+
+            new_session = client.post("/api/v1/session/guest", json={})
+            assert new_session.status_code == 200
+            cleaned_room = client.get("/api/v1/rooms/main").json()
+            assert (
+                cleaned_room["oldest_available_seq"]
+                == cleaned_room["last_seq"] + 1
+            )
+            with client.websocket_connect(
+                "/ws/rooms/main?after_seq=0"
+            ) as reset_ws:
+                ready = reset_ws.receive_json()
+                assert ready["type"] == "session.ready"
+                assert (
+                    ready["oldest_available_seq"]
+                    == cleaned_room["oldest_available_seq"]
+                )
+                reset = reset_ws.receive_json()
+                assert reset["type"] == "replay.reset"
+                assert reset["payload"]["reason"] == "history_expired"
+                assert (
+                    reset["payload"]["replay_from_seq"]
+                    == cleaned_room["last_seq"]
+                )
+                assert reset_ws.receive_json()["type"] == "presence.updated"
+
         async def verify_controls_after_restart() -> None:
             restarted = PublicRoomService(
                 database_path=data_dir / "public-room.db"
@@ -329,6 +456,14 @@ def main() -> None:
                     "read_only": True,
                     "proactive_enabled": False,
                 }
+                assert restarted.retention == {
+                    "message_days": 1,
+                    "visitor_days": 1,
+                    "audit_days": 7,
+                    "speech_hours": 1,
+                    "cleanup_interval_minutes": 5,
+                }
+                assert restarted.last_cleanup is not None
             finally:
                 await restarted.shutdown()
 

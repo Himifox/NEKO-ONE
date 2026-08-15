@@ -17,6 +17,7 @@ button.ghost { color: #d9c8ed; background: #28202f; } button.danger { color: #ff
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
 .topbar > div:last-child { display: flex; align-items: center; gap: 10px; }
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+.retention-grid { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 12px; }
 .wide { grid-column: 1 / -1; }
 .hint { margin: -7px 0 0; color: #a89caf; font-size: 13px; }
 .table { overflow-x: auto; }
@@ -24,4 +25,4 @@ button.ghost { color: #d9c8ed; background: #28202f; } button.danger { color: #ff
 .row:first-child { border-top: 0; } .row small { color: #a89caf; overflow-wrap: anywhere; }
 .actions { display: flex; gap: 8px; } .actions button { padding: 7px 9px; font-size: 12px; }
 .error, #notice { color: #f59aa9; min-height: 1.4em; }
-@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .topbar, .topbar > div:last-child { align-items: flex-start; flex-wrap: wrap; } .row { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .grid, .retention-grid { grid-template-columns: 1fr; } .topbar, .topbar > div:last-child { align-items: flex-start; flex-wrap: wrap; } .row { grid-template-columns: 1fr; } }

@@ -69,10 +69,31 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
                     "display_name": visitor.display_name,
                 },
                 "last_room_seq": room["last_seq"],
+                "oldest_available_seq": room["oldest_available_seq"],
                 "heartbeat_interval_ms": 25000,
                 "server_time": utc_now(),
             },
         )
+        replay_from = max(0, room["oldest_available_seq"] - 1)
+        if after_seq < replay_from or after_seq > room["last_seq"]:
+            await service.hub.send(
+                connection,
+                {
+                    "type": "replay.reset",
+                    "server_time": utc_now(),
+                    "payload": {
+                        "reason": (
+                            "history_expired"
+                            if after_seq < replay_from
+                            else "sequence_ahead"
+                        ),
+                        "requested_after_seq": after_seq,
+                        "replay_from_seq": replay_from,
+                        "last_room_seq": room["last_seq"],
+                    },
+                },
+            )
+            after_seq = replay_from
         missed = await service.store.list_events(room_id, after_seq, limit=1000)
         for event in missed:
             await service.hub.send(connection, event)

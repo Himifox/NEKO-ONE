@@ -17,6 +17,11 @@ proxy. Only Nginx listens on the public network.
 6. Back up `/var/lib/neko-public` plus the memory/config application data every
    day. Test restore on a separate host.
 
+The service automatically applies the finite retention policy configured by
+`NEKO_PUBLIC_*_RETENTION_*`. Persisted values changed in `/admin` override the
+environment defaults. Retention removes online data; it does not remove copies
+from backups, so define and test a separate encrypted-backup expiry policy.
+
 Expected network surface:
 
 - Public: TCP 443 (and optional 80 redirect).

@@ -399,6 +399,7 @@ Director 只有同时满足以下条件才可创建主动 turn：
 
 单连接事件：
 
+- `replay.reset`
 - `chat.accepted`
 - `command.rejected`
 - `rate_limit.changed`
@@ -409,6 +410,7 @@ Director 只有同时满足以下条件才可创建主动 turn：
 - 客户端持久保存最后完整处理的 `room_seq`；
 - 重连请求携带 `after_seq`；
 - 服务端从事件保留窗口补发；
+- `session.ready` 返回 `oldest_available_seq`；客户端游标超出保留窗口或领先于服务器时，服务端发送 `replay.reset`，客户端清空本地去重状态后从新窗口回放；
 - 若 `after_seq` 太旧，发送新 `room.snapshot` 和最近消息窗口；
 - 活动生成使用 `stream.snapshot` 返回当前完整临时文本和最后 `chunk_index`；
 - 客户端发现 `room_seq` 缺口时停止追加并请求重新同步；
@@ -544,7 +546,7 @@ Director 只有同时满足以下条件才可创建主动 turn：
 - `GET /health/live`：进程存活；
 - `GET /health/ready`：依赖就绪，只允许代理/监控访问详细信息。
 
-管理 API 使用 `/api/v1/admin/*`。第一版已经覆盖 Persona、记忆审核、封禁、额度、暂停/只读/主动主持控制、取消当前 generation 和审计查询；模型/TTS 配置仍保留在私有服务端配置目录。不得在同一路由中仅靠前端隐藏按钮区分管理员能力。
+管理 API 使用 `/api/v1/admin/*`。第一版已经覆盖 Persona、记忆审核、封禁、额度、暂停/只读/主动主持控制、取消当前 generation、数据保留/清理和审计查询；模型/TTS 配置仍保留在私有服务端配置目录。不得在同一路由中仅靠前端隐藏按钮区分管理员能力。
 
 ## 12. 前端边界
 

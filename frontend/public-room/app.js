@@ -94,6 +94,15 @@
     localStorage.setItem("neko.room.main.lastSeq", String(seq));
   }
 
+  function resetReplay(seq) {
+    state.lastSeq = Math.max(0, Number(seq) || 0);
+    localStorage.setItem("neko.room.main.lastSeq", String(state.lastSeq));
+    state.rendered.clear();
+    timeline.replaceChildren();
+    streamRow.hidden = true;
+    state.rawStream = "";
+  }
+
   function renderMessage(message) {
     if (!message || state.rendered.has(message.id)) return;
     state.rendered.add(message.id);
@@ -125,6 +134,12 @@
         visitorName.textContent = event.visitor?.display_name || "游客";
         state.reconnectAttempt = 0;
         setConnection("已连接", "online");
+        break;
+      case "replay.reset":
+        resetReplay(payload.replay_from_seq);
+        queueState.textContent = payload.reason === "history_expired"
+          ? "旧记录已按保留策略清理，时间线已同步"
+          : "本地进度已重置，正在同步房间";
         break;
       case "message.created":
         renderMessage(payload);

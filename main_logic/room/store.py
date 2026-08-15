@@ -516,9 +516,140 @@ class RoomStore:
                 "SELECT id, slug, status, last_seq FROM rooms WHERE id = ?",
                 (room_id,),
             ).fetchone()
+            oldest = connection.execute(
+                "SELECT MIN(room_seq) FROM room_events WHERE room_id = ?",
+                (room_id,),
+            ).fetchone()[0]
         if room is None:
-            return {"id": room_id, "slug": room_id, "status": "missing", "last_seq": 0}
-        return dict(room)
+            return {
+                "id": room_id,
+                "slug": room_id,
+                "status": "missing",
+                "last_seq": 0,
+                "oldest_available_seq": 1,
+            }
+        snapshot = dict(room)
+        snapshot["oldest_available_seq"] = (
+            int(oldest) if oldest is not None else int(room["last_seq"]) + 1
+        )
+        return snapshot
+
+    async def list_stale_visitors(
+        self, before: str, *, limit: int = 100
+    ) -> list[Visitor]:
+        return await asyncio.to_thread(
+            self._list_stale_visitors_sync, before, limit
+        )
+
+    def _list_stale_visitors_sync(
+        self, before: str, limit: int
+    ) -> list[Visitor]:
+        with self._managed_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, display_name, status
+                FROM visitors
+                WHERE last_seen_at < ?
+                ORDER BY last_seen_at ASC
+                LIMIT ?
+                """,
+                (before, max(1, min(limit, 500))),
+            ).fetchall()
+        return [
+            Visitor(
+                id=row["id"],
+                display_name=row["display_name"],
+                status=row["status"],
+            )
+            for row in rows
+        ]
+
+    async def cleanup_expired(
+        self,
+        *,
+        content_before: str,
+        audit_before: str,
+        visitor_ids: list[str],
+        actor_id: str = "system:retention",
+    ) -> dict[str, int]:
+        async with self._write_lock:
+            return await asyncio.to_thread(
+                self._cleanup_expired_sync,
+                content_before,
+                audit_before,
+                visitor_ids,
+                actor_id,
+            )
+
+    def _cleanup_expired_sync(
+        self,
+        content_before: str,
+        audit_before: str,
+        visitor_ids: list[str],
+        actor_id: str,
+    ) -> dict[str, int]:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            counts = {
+                "client_requests": connection.execute(
+                    "DELETE FROM client_requests WHERE created_at < ?",
+                    (content_before,),
+                ).rowcount,
+                "turns": connection.execute(
+                    """
+                    DELETE FROM turns
+                    WHERE status != 'running'
+                      AND COALESCE(completed_at, started_at) < ?
+                    """,
+                    (content_before,),
+                ).rowcount,
+                "messages": connection.execute(
+                    "DELETE FROM messages WHERE created_at < ?",
+                    (content_before,),
+                ).rowcount,
+                "events": connection.execute(
+                    "DELETE FROM room_events WHERE created_at < ?",
+                    (content_before,),
+                ).rowcount,
+                "audit": connection.execute(
+                    "DELETE FROM audit_log WHERE created_at < ?",
+                    (audit_before,),
+                ).rowcount,
+                "visitors": 0,
+            }
+            safe_visitor_ids = sorted(
+                {
+                    visitor_id
+                    for visitor_id in visitor_ids
+                    if visitor_id.startswith("vis_") and len(visitor_id) <= 80
+                }
+            )
+            if safe_visitor_ids:
+                placeholders = ",".join("?" for _ in safe_visitor_ids)
+                counts["visitors"] = connection.execute(
+                    f"DELETE FROM visitors WHERE id IN ({placeholders})",
+                    safe_visitor_ids,
+                ).rowcount
+            self._insert_audit_on(
+                connection,
+                actor_id,
+                "retention.cleanup",
+                "service",
+                "public-room",
+                {
+                    "content_before": content_before,
+                    "audit_before": audit_before,
+                    "counts": counts,
+                },
+            )
+            connection.commit()
+            return {key: int(value) for key, value in counts.items()}
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     @staticmethod
     def _row_to_message(row: sqlite3.Row) -> RoomMessage:

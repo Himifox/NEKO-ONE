@@ -48,6 +48,15 @@
     document.getElementById("generation-state").textContent = state.active_generation
       ? `正在生成：${state.active_generation.generation_id} · ${state.active_generation.phase}`
       : "当前没有进行中的回复";
+    document.getElementById("message-retention-days").value = state.retention.message_days;
+    document.getElementById("visitor-retention-days").value = state.retention.visitor_days;
+    document.getElementById("audit-retention-days").value = state.retention.audit_days;
+    document.getElementById("speech-retention-hours").value = state.retention.speech_hours;
+    document.getElementById("cleanup-interval-minutes").value = state.retention.cleanup_interval_minutes;
+    const cleanup = state.last_cleanup;
+    document.getElementById("cleanup-state").textContent = cleanup
+      ? `上次完成：${cleanup.completed_at} · 删除 ${Object.values(cleanup.counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)} 项 · Memory 失败 ${cleanup.memory_forget_failures || 0}`
+      : "尚未执行清理";
     const visitors = document.getElementById("visitors"); visitors.replaceChildren();
     state.visitors.forEach((visitor) => visitors.append(row(
       `${visitor.display_name} · ${visitor.status}`,
@@ -97,6 +106,16 @@
     proactive_enabled: document.getElementById("proactive-enabled").checked,
   }));
   document.getElementById("cancel-generation").addEventListener("click", () => mutate("/generation/cancel", "POST"));
+  document.getElementById("save-retention").addEventListener("click", () => mutate("/retention", "PUT", {
+    message_days: Number(document.getElementById("message-retention-days").value),
+    visitor_days: Number(document.getElementById("visitor-retention-days").value),
+    audit_days: Number(document.getElementById("audit-retention-days").value),
+    speech_hours: Number(document.getElementById("speech-retention-hours").value),
+    cleanup_interval_minutes: Number(document.getElementById("cleanup-interval-minutes").value),
+  }));
+  document.getElementById("run-retention").addEventListener("click", () => {
+    if (confirm("立即按当前保留策略永久清理过期数据？")) mutate("/retention/run", "POST");
+  });
   dashboard.addEventListener("click", async (event) => {
     const target = event.target.closest("button[data-action]"); if (!target) return;
     const id = target.dataset.id;

@@ -31,6 +31,10 @@ def main() -> None:
         required = {
             "/", "/admin", "/api/v1/health/live", "/api/v1/health/ready",
             "/api/v1/session/guest", "/api/v1/avatar", "/ws/rooms/{room_id}",
+            "/api/v1/admin/room-controls",
+            "/api/v1/admin/generation/cancel",
+            "/api/v1/admin/retention",
+            "/api/v1/admin/retention/run",
         }
         missing = sorted(required - paths)
         assert not missing, f"required public routes missing: {missing}"

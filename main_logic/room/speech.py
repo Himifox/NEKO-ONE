@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import wave
+from datetime import datetime
 from queue import Queue
 from threading import Thread
 from pathlib import Path
@@ -214,6 +215,21 @@ class SpeechService:
             output.setframerate(48000)
             output.writeframes(pcm)
         temporary.replace(destination)
+
+    async def cleanup_before(self, cutoff: datetime) -> int:
+        return await asyncio.to_thread(self._cleanup_before_sync, cutoff.timestamp())
+
+    def _cleanup_before_sync(self, cutoff_timestamp: float) -> int:
+        removed = 0
+        for pattern in ("*.wav", "*.tmp"):
+            for candidate in self.audio_root.glob(pattern):
+                try:
+                    if candidate.is_file() and candidate.stat().st_mtime < cutoff_timestamp:
+                        candidate.unlink()
+                        removed += 1
+                except FileNotFoundError:
+                    continue
+        return removed
 
     async def shutdown(self) -> None:
         if self._request_queue is not None and self._thread is not None:
