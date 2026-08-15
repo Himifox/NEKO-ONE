@@ -114,9 +114,8 @@ from .rows import (  # noqa: F401
 
 from . import runtime  # noqa: F401
 from .runtime import (  # noqa: F401
-    ContinueStorageStartupRequest,
     _BACKGROUND_TASKS,
-    _STORAGE_LIMITED_MODE_ALLOWED_PATHS,
+    _INITIALIZING_ALLOWED_PATHS,
     _bootstrap_embedding_worker,
     _defer_time_manager_cleanup,
     _deferred_time_managers,
@@ -127,8 +126,6 @@ from .runtime import (  # noqa: F401
     _settle_locks,
     _spawn_background_task,
     app,
-    block_storage_startup,
-    continue_storage_startup,
     ensure_memory_server_runtime_initialized,
     handle_maintenance_mode_error,
     health,
@@ -140,7 +137,7 @@ from .runtime import (  # noqa: F401
     shutdown_event_handler,
     shutdown_memory_server,
     startup_event_handler,
-    storage_limited_mode_guard,
+    runtime_initializing_guard,
 )
 
 from . import outbox_infra  # noqa: F401

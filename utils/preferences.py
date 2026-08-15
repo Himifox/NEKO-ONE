@@ -25,7 +25,10 @@ from typing import Dict, Any, Optional, List
 import portalocker
 
 from utils.config_manager import get_config_manager
-from utils.cloudsave_runtime import MaintenanceModeError, assert_cloudsave_writable
+from utils.local_write_guard import (
+    LocalWriteUnavailable as MaintenanceModeError,
+    assert_local_writable as assert_cloudsave_writable,
+)
 from utils.conversation_settings_constants import (
     ALLOWED_CONVERSATION_SETTINGS as _ALLOWED_CONVERSATION_SETTINGS,
     ASR_WRITE_ID_MAX_FUTURE_SKEW_MS,

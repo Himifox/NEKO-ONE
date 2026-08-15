@@ -38,7 +38,7 @@ do not resurrect the old code.
 import json
 
 from config import CHARACTER_RESERVED_FIELDS
-from utils.cloudsave_runtime import assert_cloudsave_writable
+from utils.local_write_guard import assert_local_writable as assert_cloudsave_writable
 from utils.config_manager import get_config_manager
 from utils.file_utils import atomic_write_json
 

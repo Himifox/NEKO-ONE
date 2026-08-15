@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_LEGACY_SOURCES = (
     "utils/capture_bridge.py",
     "utils/cloudsave_autocloud.py",
+    "utils/cloudsave_runtime",
     "utils/document_parser.py",
     "utils/game_log.py",
     "utils/game_route_state.py",
@@ -24,6 +25,9 @@ FORBIDDEN_LEGACY_SOURCES = (
     "utils/screenshot_utils.py",
     "utils/seven_day_tutorial_state.py",
     "utils/steam_cloud_bundle.py",
+    "utils/storage_location_bootstrap.py",
+    "utils/storage_migration.py",
+    "utils/storage_path_rewrite.py",
     "utils/survey_client.py",
     "utils/twitch_auth.py",
     "utils/voice_clone.py",
@@ -59,6 +63,8 @@ def main() -> None:
     assert not ({"vrm", "mmd", "pngtuber"} & set(avatar_defaults)), (
         "alternate renderer defaults returned"
     )
+    memory_runtime = (ROOT / "app" / "memory_server" / "runtime.py").read_text("utf-8")
+    assert "/internal/storage/" not in memory_runtime, "legacy storage control route returned"
 
     with tempfile.TemporaryDirectory(prefix="neko-boundary-") as temporary:
         os.environ["NEKO_PUBLIC_DATA_DIR"] = temporary

@@ -84,7 +84,10 @@ from memory.facts import (
     safe_int_field,
 )
 from memory.temporal import to_naive_local
-from utils.cloudsave_runtime import MaintenanceModeError, assert_cloudsave_writable
+from utils.local_write_guard import (
+    LocalWriteUnavailable as MaintenanceModeError,
+    assert_local_writable as assert_cloudsave_writable,
+)
 from utils.file_utils import (
     atomic_write_json_async,
     read_json_async,

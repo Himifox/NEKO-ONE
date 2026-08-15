@@ -118,7 +118,7 @@ class CharactersMixin:
                 except Exception as migrate_err:
                     # 维护态（只读快照阶段）不能持久化，降级为 debug 日志
                     try:
-                        from utils.cloudsave_runtime import MaintenanceModeError
+                        from utils.local_write_guard import LocalWriteUnavailable as MaintenanceModeError
                     except Exception:
                         MaintenanceModeError = None
                     if MaintenanceModeError is not None and isinstance(migrate_err, MaintenanceModeError):
@@ -139,7 +139,7 @@ class CharactersMixin:
             character_json_path = str(self.get_runtime_config_path('characters.json'))
 
         if not bypass_write_fence:
-            from utils.cloudsave_runtime import assert_cloudsave_writable
+            from utils.local_write_guard import assert_local_writable as assert_cloudsave_writable
 
             assert_cloudsave_writable(self, operation="save", target="characters.json")
 

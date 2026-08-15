@@ -51,6 +51,7 @@ Before deployment, run:
 
 ```powershell
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_public_room.py
+uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_memory_runtime.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/check_public_boundary.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_deployment_security.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_room_capacity.py

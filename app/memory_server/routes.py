@@ -54,7 +54,10 @@ from utils.language_utils import (
 )
 from utils.llm_client import convert_to_messages
 from utils.time_format import format_elapsed as _format_elapsed
-from utils.cloudsave_runtime import MaintenanceModeError, assert_cloudsave_writable
+from utils.local_write_guard import (
+    LocalWriteUnavailable as MaintenanceModeError,
+    assert_local_writable as assert_cloudsave_writable,
+)
 from memory.external_markdown_import import MAX_ENTRIES, MAX_ENTRY_CHARS
 from memory.outbox import OP_PERSIST_PROMPT_LOCALE
 from memory.persona.fusion import ExternalMemoryImportTooLargeError

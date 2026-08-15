@@ -47,7 +47,7 @@ from config import (
     EVIDENCE_PROMOTION_MERGE_MODEL_TIER,
 )
 from memory.evidence import evidence_score, initial_reinforcement_from_importance
-from utils.cloudsave_runtime import assert_cloudsave_writable
+from utils.local_write_guard import assert_local_writable as assert_cloudsave_writable
 from utils.config_manager import get_config_manager
 from utils.file_utils import (
     atomic_write_json,

@@ -21,7 +21,6 @@ config/memory path lookups of :class:`ConfigManager`.
 """
 import json
 import os
-import secrets
 import sys
 import threading
 import uuid
@@ -208,53 +207,6 @@ class StorageRootsMixin:
                 )
 
     @property
-    def cloudsave_dir(self) -> Path:
-        """Cloud-save export root directory (the normalized export layer outside the runtime directory)."""
-        return self.anchor_root / "cloudsave"
-
-    @property
-    def cloudsave_catalog_dir(self) -> Path:
-        return self.cloudsave_dir / "catalog"
-
-    @property
-    def cloudsave_profiles_dir(self) -> Path:
-        return self.cloudsave_dir / "profiles"
-
-    @property
-    def cloudsave_bindings_dir(self) -> Path:
-        return self.cloudsave_dir / "bindings"
-
-    @property
-    def cloudsave_memory_dir(self) -> Path:
-        return self.cloudsave_dir / "memory"
-
-    @property
-    def cloudsave_overrides_dir(self) -> Path:
-        return self.cloudsave_dir / "overrides"
-
-    @property
-    def cloudsave_meta_dir(self) -> Path:
-        return self.cloudsave_dir / "meta"
-
-    @property
-    def cloudsave_workshop_meta_dir(self) -> Path:
-        return self.cloudsave_meta_dir / "workshop"
-
-    @property
-    def cloudsave_manifest_path(self) -> Path:
-        return self.cloudsave_dir / "manifest.json"
-
-    @property
-    def cloudsave_staging_dir(self) -> Path:
-        """Local staging area; excluded from the cloud sync whitelist."""
-        return self.anchor_root / ".cloudsave_staging"
-
-    @property
-    def cloudsave_backups_dir(self) -> Path:
-        """Local conflict backup pool, kept explicitly outside cloudsave/ to avoid accidental future sync."""
-        return self.anchor_root / "cloudsave_backups"
-
-    @property
     def local_state_dir(self) -> Path:
         """Local state directory, holding sync metadata that never goes to the cloud."""
         return self.anchor_root / "state"
@@ -264,10 +216,6 @@ class StorageRootsMixin:
         return self.local_state_dir / "root_state.json"
 
     @property
-    def cloudsave_local_state_path(self) -> Path:
-        return self.local_state_dir / "cloudsave_local_state.json"
-
-    @property
     def character_tombstones_state_path(self) -> Path:
         return self.local_state_dir / "character_tombstones.json"
 
@@ -275,7 +223,7 @@ class StorageRootsMixin:
         unavailable_root = str(self.committed_selected_root)
         state = dict(state) if isinstance(state, dict) else {}
         state["version"] = self.ROOT_STATE_VERSION
-        from utils.cloudsave_runtime import ROOT_MODE_DEFERRED_INIT
+        ROOT_MODE_DEFERRED_INIT = "deferred_init"
 
         state["mode"] = ROOT_MODE_DEFERRED_INIT
         state["current_root"] = unavailable_root
@@ -624,7 +572,7 @@ class StorageRootsMixin:
             return False
 
     def _ensure_anchor_root_directory(self):
-        """Ensure the anchor directory exists (it permanently hosts cloudsave/state)."""
+        """Ensure the anchor directory exists for local runtime state."""
         try:
             self.anchor_root.mkdir(parents=True, exist_ok=True)
             return True
@@ -804,35 +752,6 @@ class StorageRootsMixin:
         """
         return self.card_faces_dir / f"{name}.json"
 
-    def ensure_cloudsave_structure(self):
-        """Ensure the local cloudsave base directories exist.
-
-        Only the directory skeleton and local workspace are created here, not manifest
-        content, so phase 0 can land path and state infrastructure first without
-        changing existing sync semantics.
-        """
-        try:
-            if not self._ensure_anchor_root_directory():
-                return False
-
-            for directory in (
-                self.cloudsave_dir,
-                self.cloudsave_catalog_dir,
-                self.cloudsave_profiles_dir,
-                self.cloudsave_bindings_dir,
-                self.cloudsave_memory_dir,
-                self.cloudsave_overrides_dir,
-                self.cloudsave_meta_dir,
-                self.cloudsave_workshop_meta_dir,
-                self.cloudsave_staging_dir,
-                self.cloudsave_backups_dir,
-            ):
-                directory.mkdir(parents=True, exist_ok=True)
-            return True
-        except Exception as e:
-            print(f"Warning: Failed to create cloudsave structure: {e}", file=sys.stderr)
-            return False
-
     def ensure_local_state_directory(self):
         """Ensure the local state directory exists."""
         self._last_local_state_directory_error = None
@@ -953,18 +872,6 @@ class StorageRootsMixin:
             "legacy_cleanup_pending": False,
         }
 
-    def build_default_cloudsave_local_state(self, *, client_id=None):
-        """Build default cloudsave_local_state content."""
-        return {
-            "version": self.CLOUDSAVE_LOCAL_STATE_VERSION,
-            "client_id": str(client_id or uuid.uuid4().hex),
-            "client_proof": secrets.token_urlsafe(32),
-            "next_sequence_number": 1,
-            "last_applied_manifest_fingerprint": "",
-            "last_successful_export_at": "",
-            "last_successful_import_at": "",
-        }
-
     def build_default_character_tombstones_state(self):
         """Build default per-character tombstone local state."""
         return {
@@ -1010,75 +917,6 @@ class StorageRootsMixin:
                 self._raise_local_state_directory_error("saving root_state")
             self._save_local_state_json_file(self.root_state_path, data, "saving root_state")
 
-    def load_cloudsave_local_state(self, default_value=None):
-        """Load cloudsave_local_state; returns a default with a stable field structure when missing."""
-        if default_value is None:
-            default_value = self.build_default_cloudsave_local_state()
-        return self._load_local_state_json_file(
-            self.cloudsave_local_state_path,
-            default_value,
-            "loading cloudsave_local_state",
-        )
-
-    def save_cloudsave_local_state(self, data):
-        """Save cloudsave_local_state."""
-        if not self.ensure_local_state_directory():
-            self._raise_local_state_directory_error("saving cloudsave_local_state")
-        self._save_local_state_json_file(
-            self.cloudsave_local_state_path,
-            data,
-            "saving cloudsave_local_state",
-        )
-
-    def ensure_cloudsave_client_credentials(self):
-        """Return a stable client id and secret, persisting either when missing."""
-        needs_persist = not self.cloudsave_local_state_path.exists()
-        state = self.load_cloudsave_local_state()
-        if isinstance(state, dict):
-            client_id = state.get("client_id")
-            client_proof = state.get("client_proof")
-            if (
-                not needs_persist
-                and isinstance(client_id, str)
-                and client_id
-                and isinstance(client_proof, str)
-                and 32 <= len(client_proof) <= 256
-            ):
-                return client_id, client_proof
-
-        # Credential creation/upgrades share the cloud-save cross-process fence.
-        # Re-read after acquiring it so a concurrent export/import cannot have
-        # its sequence number or manifest timestamps overwritten by a stale
-        # dictionary captured above.
-        from utils.cloudsave_runtime import cloud_apply_fence
-
-        with cloud_apply_fence(
-            self,
-            reason="ensure_cloudsave_client_credentials",
-        ):
-            needs_persist = not self.cloudsave_local_state_path.exists()
-            state = self.load_cloudsave_local_state()
-            if not isinstance(state, dict):
-                state = self.build_default_cloudsave_local_state()
-                needs_persist = True
-
-            client_id = state.get("client_id")
-            if not isinstance(client_id, str) or not client_id:
-                client_id = uuid.uuid4().hex
-                state["client_id"] = client_id
-                needs_persist = True
-
-            client_proof = state.get("client_proof")
-            if not isinstance(client_proof, str) or not 32 <= len(client_proof) <= 256:
-                client_proof = secrets.token_urlsafe(32)
-                state["client_proof"] = client_proof
-                state["version"] = self.CLOUDSAVE_LOCAL_STATE_VERSION
-                needs_persist = True
-
-            if needs_persist:
-                self.save_cloudsave_local_state(state)
-            return client_id, client_proof
-
     def load_character_tombstones_state(self, default_value=None):
         """Load per-character tombstone local state."""
         if default_value is None:
@@ -1099,31 +937,6 @@ class StorageRootsMixin:
             "saving character_tombstones_state",
         )
 
-    def ensure_cloudsave_state_files(self):
-        """Ensure local cloudsave-related state files exist; returns whether anything was created."""
-        created = False
-        if not self.ensure_local_state_directory():
-            diagnostic = getattr(self, "_last_local_state_directory_error", None)
-            diagnostic_suffix = f"\n{diagnostic}" if diagnostic is not None else ""
-            raise RuntimeError(
-                "Failed to initialize local state directory for "
-                f"{self.root_state_path.name}, "
-                f"{self.cloudsave_local_state_path.name}, and "
-                f"{self.character_tombstones_state_path.name}"
-                f"{diagnostic_suffix}"
-            )
-
-        if not self.root_state_path.exists():
-            self.save_root_state(self.build_default_root_state())
-            created = True
-        if not self.cloudsave_local_state_path.exists():
-            self.save_cloudsave_local_state(self.build_default_cloudsave_local_state())
-            created = True
-        if not self.character_tombstones_state_path.exists():
-            self.save_character_tombstones_state(self.build_default_character_tombstones_state())
-            created = True
-        return created
-    
     def get_config_path(self, filename):
         """
         Get the config file path
@@ -1190,7 +1003,7 @@ class StorageRootsMixin:
             data: data to save
         """
         if not bypass_write_fence:
-            from utils.cloudsave_runtime import assert_cloudsave_writable
+            from utils.local_write_guard import assert_local_writable as assert_cloudsave_writable
 
             assert_cloudsave_writable(self, operation="save", target=filename)
 
@@ -1245,9 +1058,6 @@ class StorageRootsMixin:
             "windows_cfa_fallback_active": self.is_windows_cfa_fallback_active,
             "workshop_dir": str(self.workshop_dir),
             "chara_dir": str(self.chara_dir),
-            "cloudsave_dir": str(self.cloudsave_dir),
-            "cloudsave_staging_dir": str(self.cloudsave_staging_dir),
-            "cloudsave_backups_dir": str(self.cloudsave_backups_dir),
             "local_state_dir": str(self.local_state_dir),
             "character_tombstones_state_path": str(self.character_tombstones_state_path),
             "project_config_dir": str(self.project_config_dir),

@@ -26,7 +26,6 @@ from utils.logger_config import get_module_logger
 logger = get_module_logger(__name__)
 
 STORAGE_POLICY_VERSION = 1
-CLOUDSAVE_STRATEGY_FIXED_ANCHOR = "fixed_anchor"
 POLICY_SELECTION_SOURCE_DEFAULT = "default"
 POLICY_SELECTION_SOURCE_USER_SELECTED = "user_selected"
 POLICY_SELECTION_SOURCE_RECOVERED = "recovered"
@@ -198,7 +197,6 @@ def save_storage_policy(
             selected_root=normalized_selected_root,
             recommended_root=normalized_anchor_root,
         ),
-        "cloudsave_strategy": CLOUDSAVE_STRATEGY_FIXED_ANCHOR,
         "first_run_completed": True,
         "updated_at": _utc_now_iso(),
     }
@@ -301,10 +299,7 @@ def validate_selected_root(
         )
 
     reserved_roots = (
-        (normalized_anchor_root / "cloudsave", "selected_root_inside_cloudsave"),
         (normalized_anchor_root / "state", "selected_root_inside_state"),
-        (normalized_anchor_root / ".cloudsave_staging", "selected_root_inside_staging"),
-        (normalized_anchor_root / "cloudsave_backups", "selected_root_inside_backups"),
     )
     for reserved_root, error_code in reserved_roots:
         if _paths_equal(normalized_target_root, reserved_root) or _is_relative_to(

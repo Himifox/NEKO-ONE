@@ -67,7 +67,10 @@ from memory.scopes import (
     entry_matches_subject,
     subject_from_entry,
 )
-from utils.cloudsave_runtime import MaintenanceModeError, assert_cloudsave_writable
+from utils.local_write_guard import (
+    LocalWriteUnavailable as MaintenanceModeError,
+    assert_local_writable as assert_cloudsave_writable,
+)
 from utils.language_utils import (
     detect_prompt_language_with_ascii_fallback,
     get_global_language_full,

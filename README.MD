@@ -199,6 +199,9 @@ node --check frontend/public-admin/app.js
 
 `verify_public_room.py` 使用假的模型、记忆和 TTS 实现，不会调用真实供应商或污染正式记忆。它覆盖多人连接、消息序号、幂等发送、断线续传、管理审核、封禁、限额、应急控制、数据清理、过期回放重置，以及 LLM 超时、Memory 故障和 TTS 失败后的降级与恢复。`verify_room_capacity.py` 进一步验证 10/25/50 人并发、严格事件顺序、单 generation、慢客户端隔离和任务回收；长时命令及门槛见[容量与稳定性运维手册](docs/operations/capacity-and-soak.md)。`verify_backup_restore.py` 覆盖活动 SQLite 在线备份、清单校验、隔离恢复、损坏和路径逃逸拒绝；生产加密与异机演练见[备份恢复手册](docs/operations/backup-and-restore.md)。
 
+`verify_memory_runtime.py` 会在隔离目录启动真实 Memory 应用，验证健康指纹、
+旧存储控制路由已消失，并确认不会重新创建任何云同步目录或状态文件。
+
 `verify_public_assets.py` 对浏览器运行库逐文件核对版本、SHA-256 和许可证，并阻止无授权模型、声音或字体重新进入公开发行物。
 
 真实供应商不会在普通回归中调用。上线前先执行无费用预检，再通过显式费用确认运行一次隔离的 LLM、Memory、TTS 验收，详见[真实供应商验收手册](docs/operations/provider-acceptance.md)。
@@ -215,6 +218,8 @@ Agent Server、插件市场、浏览器/电脑控制、Steam、云存档、游�
 
 发行边界检查还会拒绝桌面截图、游戏状态、教程、直播/网页抓取、音乐点播、
 Workshop、Steam 云包、声音克隆编辑器及对应提示词重新进入源码树和公开发行物。
+长期记忆继续写入本地持久化目录；旧云同步、快照导入导出、存储迁移闸门和
+远端恢复实现已经移除，生产备份统一使用可校验的 `scripts/manage_backup.py` 流程。
 
 ## 当前版本
 

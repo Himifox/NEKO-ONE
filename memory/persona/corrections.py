@@ -36,7 +36,10 @@ from datetime import datetime
 from memory.facts import safe_int_field
 
 
-from utils.cloudsave_runtime import MaintenanceModeError, assert_cloudsave_writable
+from utils.local_write_guard import (
+    LocalWriteUnavailable as MaintenanceModeError,
+    assert_local_writable as assert_cloudsave_writable,
+)
 
 
 from utils.file_utils import (

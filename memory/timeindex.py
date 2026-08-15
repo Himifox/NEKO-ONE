@@ -16,7 +16,10 @@ from utils.llm_client import SQLChatMessageHistory, SystemMessage
 from sqlalchemy import create_engine, text
 from config import TIME_ORIGINAL_TABLE_NAME, TIME_COMPRESSED_TABLE_NAME
 from memory.stop_names import collect_stop_names, strip_stop_names
-from utils.cloudsave_runtime import MaintenanceModeError, assert_cloudsave_writable
+from utils.local_write_guard import (
+    LocalWriteUnavailable as MaintenanceModeError,
+    assert_local_writable as assert_cloudsave_writable,
+)
 from utils.config_manager import get_config_manager
 from utils.logger_config import get_module_logger
 from collections.abc import AsyncIterator, Generator, Iterator

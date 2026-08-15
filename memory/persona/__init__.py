@@ -51,7 +51,10 @@ from memory.stop_names import (
     collect_stop_names,
     strip_stop_names,
 )
-from utils.cloudsave_runtime import MaintenanceModeError, assert_cloudsave_writable
+from utils.local_write_guard import (
+    LocalWriteUnavailable as MaintenanceModeError,
+    assert_local_writable as assert_cloudsave_writable,
+)
 from utils.config_manager import get_config_manager
 from utils.file_utils import (
     atomic_write_json,

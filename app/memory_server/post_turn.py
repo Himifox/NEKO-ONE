@@ -101,7 +101,7 @@ async def _spawn_outbox_post_turn_signals(
         allocate_character_prompt_locale_order,
         reserve_character_prompt_locale_order,
     )
-    from utils.cloudsave_runtime import MaintenanceModeError
+    from utils.local_write_guard import LocalWriteUnavailable as MaintenanceModeError
     from utils.language_utils import (
         is_supported_language_code,
         normalize_language_code,
@@ -204,7 +204,7 @@ async def _wait_for_character_prompt_locale_order(
         PromptLocaleInvalidatedError,
         reserve_character_prompt_locale_order,
     )
-    from utils.cloudsave_runtime import MaintenanceModeError
+    from utils.local_write_guard import LocalWriteUnavailable as MaintenanceModeError
 
     if not isinstance(admission_order, int) or isinstance(admission_order, bool):
         # Legacy outbox rows predate admission-order persistence, so they must
@@ -252,7 +252,7 @@ async def _wait_for_signal_locale_persistence(
 ) -> str | None:
     """Return the effective locale after this ordered write is durable."""
     from .locale_state import PromptLocaleInvalidatedError
-    from utils.cloudsave_runtime import MaintenanceModeError
+    from utils.local_write_guard import LocalWriteUnavailable as MaintenanceModeError
 
     while True:
         try:

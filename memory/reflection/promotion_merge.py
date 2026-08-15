@@ -32,7 +32,7 @@ from config import (
 
 from memory.evidence import evidence_score
 
-from utils.cloudsave_runtime import assert_cloudsave_writable
+from utils.local_write_guard import assert_local_writable as assert_cloudsave_writable
 
 
 from utils.file_utils import (

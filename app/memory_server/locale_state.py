@@ -23,7 +23,7 @@ import os
 import threading
 import time
 
-from utils.cloudsave_runtime import MaintenanceModeError
+from utils.local_write_guard import LocalWriteUnavailable as MaintenanceModeError
 from utils.file_utils import atomic_write_json
 from utils.language_utils import (
     is_supported_language_code,
@@ -175,7 +175,7 @@ def _persist_subject_locale_forget_cutoffs_unlocked() -> None:
 
 
 def _assert_prompt_locale_writable(target: str) -> None:
-    from utils.cloudsave_runtime import assert_cloudsave_writable
+    from utils.local_write_guard import assert_local_writable as assert_cloudsave_writable
     from utils.config_manager import get_config_manager
 
     assert_cloudsave_writable(
@@ -186,7 +186,7 @@ def _assert_prompt_locale_writable(target: str) -> None:
 
 
 def _prompt_locale_write_transaction(target: str):
-    from utils.cloudsave_runtime import cloudsave_writable_transaction
+    from utils.local_write_guard import local_writable_transaction as cloudsave_writable_transaction
     from utils.config_manager import get_config_manager
 
     return cloudsave_writable_transaction(

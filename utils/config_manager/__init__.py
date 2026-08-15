@@ -149,7 +149,6 @@ class ConfigManager(
     # 本身不是线程安全的，两个线程可能同时看到 False 各跑一遍迁移。
     _openclaw_migration_lock = threading.Lock()
     ROOT_STATE_VERSION = 1
-    CLOUDSAVE_LOCAL_STATE_VERSION = 2
     CHARACTER_TOMBSTONES_STATE_VERSION = 1
 
     # 区域判定的三个缓存（None=未定，True=非大陆，False=大陆）：

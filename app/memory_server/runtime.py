@@ -17,9 +17,9 @@
 
 Owns the FastAPI ``app``, every memory-component singleton (constructed in
 ``ensure_memory_server_runtime_initialized``, atomically swapped by
-``reload_memory_components``), the storage-limited-mode middleware, the
+``reload_memory_components``), the startup-safety middleware, the
 process lifecycle endpoints (/health, /shutdown, /release_character,
-/reload, /internal/storage/*, /internal/memory/reset_confirmed_at plus the
+/reload, /internal/memory/reset_confirmed_at plus the
 startup/shutdown hooks), the background-task registry
 (``_spawn_background_task``) and the per-character settle locks.
 
@@ -32,7 +32,6 @@ the same reason.
 """
 
 import asyncio
-from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -50,18 +49,11 @@ from config import (
     EVIDENCE_SIGNAL_CHECK_ENABLED,
     MEMORY_RECHECK_ENABLED,
 )
-from utils.cloudsave_runtime import (
-    MaintenanceModeError,
-    ROOT_MODE_NORMAL,
-    bootstrap_local_cloudsave_environment,
-    is_cloudsave_disabled,
-    maintenance_error_payload,
-    set_root_mode,
-    should_write_root_mode_normal_after_startup,
+from utils.local_write_guard import (
+    LocalWriteUnavailable as MaintenanceModeError,
+    local_write_error_payload as maintenance_error_payload,
 )
 from utils.config_manager import get_config_manager
-from utils.root_state_lock import root_state_transaction
-from utils.storage_location_bootstrap import get_storage_startup_blocking_reason
 from utils.asgi_body_limit import InboundBodySizeLimitMiddleware
 from utils.host_origin_guard import HostOriginGuardMiddleware
 
@@ -69,59 +61,34 @@ from . import gates, locale_state
 from ._shared import logger, validate_lanlan_name
 
 
-class ContinueStorageStartupRequest(BaseModel):
-    reason: str = ""
-
-
 app = FastAPI()
-_STORAGE_LIMITED_MODE_ALLOWED_PATHS = {
+_INITIALIZING_ALLOWED_PATHS = {
     "/health",
     "/shutdown",
-    "/internal/storage/startup/continue",
-    "/internal/storage/startup/block",
 }
 
 
 @app.middleware("http")
-async def storage_limited_mode_guard(request: Request, call_next):
-    if _memory_runtime_init_completed and not _memory_storage_blocked_after_init:
+async def runtime_initializing_guard(request: Request, call_next):
+    if _memory_runtime_init_completed:
         return await call_next(request)
 
-    if request.url.path in _STORAGE_LIMITED_MODE_ALLOWED_PATHS:
+    if request.url.path in _INITIALIZING_ALLOWED_PATHS:
         return await call_next(request)
 
-    blocking_reason = get_storage_startup_blocking_reason(_config_manager)
-    if blocking_reason or _memory_storage_blocked_after_init:
-        blocking_reason = blocking_reason or "storage_startup_blocked_after_init"
-        logger.info(
-            "[Memory] limited-mode blocks request path=%r reason=%s",
-            request.url.path,
-            blocking_reason,
-        )
-        return JSONResponse(
-            status_code=409,
-            content={
-                "ok": False,
-                "error_code": "storage_startup_blocked",
-                "blocking_reason": blocking_reason,
-                "limited_mode": True,
-                "error": "Memory server 正处于存储受限启动状态，请等待存储位置选择、迁移或恢复完成。",
-            },
-        )
     runtime_blocking_reason = "runtime_initializing"
     logger.info(
-        "[Memory] limited-mode blocks request path=%r reason=%s",
+        "[Memory] initialization blocks request path=%r reason=%s",
         request.url.path,
         runtime_blocking_reason,
     )
     return JSONResponse(
-        status_code=409,
+        status_code=503,
         content={
             "ok": False,
-            "error_code": "storage_startup_blocked",
+            "error_code": runtime_blocking_reason,
             "blocking_reason": runtime_blocking_reason,
-            "limited_mode": True,
-            "error": "Memory server 正处于存储受限启动状态，请等待存储位置选择、迁移或恢复完成。",
+            "error": "Memory server is still initializing.",
         },
     )
 
@@ -149,15 +116,8 @@ async def health():
     return build_health_response("memory", instance_id=INSTANCE_ID)
 
 
-# 所有依赖 cloudsave 目录结构的初始化都推迟到 startup 钩子（见 startup_event_handler）：
-#   1. bootstrap_local_cloudsave_environment 在磁盘满/只读 FS 等场景会 raise OSError，
-#      裸调会让 module import 阶段就崩，FastAPI 根本起不来；
-#   2. bootstrap 内部的 import_legacy_runtime_root_if_needed 可能把 legacy 扁平布局的
-#      memory/{type}_{name}.ext 文件带进 target root，必须在 migrate_to_character_dirs
-#      之前跑（不然 legacy 数据留在扁平布局、components 只认 per-character 布局，数据不可达）；
-#   3. 因此 bootstrap → migrate → 组件实例化 三步必须保持顺序且都放在 startup 里。
-# Components 先声明为 None，startup hook 赋值。FastAPI 在 startup 钩子 await 完成后
-# 才开始接请求，所以 route handler 不会看到 None。
+# Components remain uninitialized until the startup hook completes. FastAPI
+# waits for this hook before accepting normal Memory requests.
 _config_manager = get_config_manager()
 
 recent_history_manager: CompressedRecentHistoryManager | None = None
@@ -190,7 +150,6 @@ _reload_lock = asyncio.Lock()
 _deferred_time_managers: list[TimeIndexedMemory] = []
 _memory_runtime_init_lock = asyncio.Lock()
 _memory_runtime_init_completed = False
-_memory_storage_blocked_after_init = False
 _memory_background_tasks_started = False
 
 
@@ -629,16 +588,6 @@ async def ensure_memory_server_runtime_initialized(*, reason: str = "") -> bool:
         if _memory_runtime_init_completed:
             return False
 
-        bootstrap_ok = False
-        if is_cloudsave_disabled():
-            logger.warning("[Memory] 跳过 cloudsave 环境 bootstrap：cloudsave 已为本次会话禁用")
-        else:
-            try:
-                bootstrap_local_cloudsave_environment(_config_manager)
-                bootstrap_ok = True
-            except Exception as e:
-                logger.warning(f"[Memory] cloudsave 环境 bootstrap 失败，后续 cloudsave 相关操作可能降级: {e}")
-
         try:
             from memory import migrate_to_character_dirs
 
@@ -681,8 +630,7 @@ async def ensure_memory_server_runtime_initialized(*, reason: str = "") -> bool:
 
         # GeoIP 预热：memory_server 是独立进程，主进程的预热只暖主进程的类级缓存。
         # 不预热的话，下面 outbox 补跑 / 首个记忆更新的免费路由 LLM 调用会读到临时
-        # 大陆快照（本进程的探测那时才刚起）。放在 cloudsave bootstrap 之后——与
-        # main_server 同一时序原则：配置成型后再预热。自配 API 用户零等待（不起探
+        # 大陆快照（本进程的探测那时才刚起）。配置成型后再预热。自配 API 用户零等待（不起探
         # 测，快照无区域敏感 URL 时直接返回 True）。
         try:
             if not await _config_manager.awarmup_region_check():
@@ -692,8 +640,8 @@ async def ensure_memory_server_runtime_initialized(*, reason: str = "") -> bool:
 
         await gates._aload_maint_state()
 
-        # Speaker-trust pool. Must come after the cloudsave bootstrap and
-        # ``ensure_memory_directory`` above, because ``pool_path()`` reads
+        # Speaker-trust pool. Must come after ``ensure_memory_directory`` above,
+        # because ``pool_path()`` reads
         # ``memory_dir``. It is a MODULE-LEVEL singleton in ``memory.trust_store``
         # and deliberately not hung off the runtime globals, so
         # ``reload_memory_components()`` does not touch it and no
@@ -769,33 +717,6 @@ async def ensure_memory_server_runtime_initialized(*, reason: str = "") -> bool:
                 return_exceptions=True,
             )
 
-        if bootstrap_ok:
-            # ⚠️ 判定和写必须在同一个锁内事务里。它们以前靠"中间没有 await"隐式原子，
-            # 但那只挡得住同一条事件循环上的协程 —— merged 模式下存储变更路由跟这段同
-            # 进程，而它的写现在跑在工作线程上，完全可以插在判定和写之间提交
-            # ROOT_MODE_MAINTENANCE_READONLY，随后被这里无条件写回 NORMAL，留下一个
-            # 没有写闸的待迁移。
-            with root_state_transaction():
-                current_root_state = _config_manager.load_root_state()
-                if should_write_root_mode_normal_after_startup(current_root_state):
-                    try:
-                        set_root_mode(
-                            _config_manager,
-                            ROOT_MODE_NORMAL,
-                            current_root=str(_config_manager.app_docs_dir),
-                            last_known_good_root=str(_config_manager.app_docs_dir),
-                            last_successful_boot_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                        )
-                    except Exception as e:
-                        logger.warning(f"[Memory] 写入启动成功标记失败: {e}")
-                else:
-                    logger.info(
-                        "[Memory] 跳过 ROOT_MODE_NORMAL 写入，当前仍处于阻断态: %s",
-                        current_root_state.get("mode") or ROOT_MODE_NORMAL,
-                    )
-        else:
-            logger.warning("[Memory] 跳过 ROOT_MODE_NORMAL 写入：cloudsave bootstrap 未成功")
-
         if not _memory_background_tasks_started:
             _spawn_background_task(evidence_loops._periodic_rebuttal_loop())
             _spawn_background_task(evidence_loops._periodic_auto_promote_loop())
@@ -830,63 +751,7 @@ async def ensure_memory_server_runtime_initialized(*, reason: str = "") -> bool:
 @app.on_event("startup")
 async def startup_event_handler():
     """Initialization at application startup"""
-    blocking_reason = get_storage_startup_blocking_reason(_config_manager)
-    if blocking_reason:
-        logger.info(
-            "[Memory] 检测到存储启动阻断态，先保持 limited-mode，等待网页端放行: %s",
-            blocking_reason,
-        )
-        return
-
     await ensure_memory_server_runtime_initialized(reason="startup")
-
-
-@app.post("/internal/storage/startup/continue")
-async def continue_storage_startup(payload: ContinueStorageStartupRequest | None = None):
-    global _memory_storage_blocked_after_init
-    blocking_reason = get_storage_startup_blocking_reason(_config_manager)
-    if blocking_reason:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "ok": False,
-                "error_code": "storage_startup_blocked",
-                "blocking_reason": blocking_reason,
-                "error": "当前存储状态仍需选择、迁移或恢复，暂时不能释放 memory server 启动闸门。",
-            },
-        )
-
-    try:
-        initialized = await ensure_memory_server_runtime_initialized(
-            reason=str(getattr(payload, "reason", "") or "storage_selection_continue_current_session"),
-        )
-        _memory_storage_blocked_after_init = False
-        return {
-            "ok": True,
-            "initialized": bool(initialized),
-        }
-    except Exception as e:
-        logger.error(f"[Memory] 释放 limited-mode 启动失败: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "ok": False,
-                "error": str(e),
-            },
-        )
-
-
-@app.post("/internal/storage/startup/block")
-async def block_storage_startup(payload: ContinueStorageStartupRequest | None = None):
-    global _memory_storage_blocked_after_init
-    reason = str(getattr(payload, "reason", "") or "").strip()
-    _memory_storage_blocked_after_init = True
-    logger.warning("[Memory] limited-mode restored after main_server startup failure: %s", reason or "-")
-    return {
-        "ok": True,
-        "limited_mode": True,
-        "reason": reason,
-    }
 
 
 @app.post("/internal/memory/reset_confirmed_at")
