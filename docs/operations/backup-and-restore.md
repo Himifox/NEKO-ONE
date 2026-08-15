@@ -2,11 +2,11 @@
 
 > 状态：一致性工具和本机隔离恢复已完成；独立 Debian 主机恢复尚未执行
 >
-> 更新日期：2026-08-15
+> 更新日期：2026-08-16
 
 `.github/workflows/verify-public-runtime.yml` 会在独立的 GitHub Actions `debian:12-slim` 容器中，用合成的公共数据库、Memory 数据和私有配置执行备份、校验、隔离恢复、篡改检测和路径穿越拒绝。该检查证明工具可在目标 Debian 系列环境运行，但不替代使用生产备份完成的异机恢复演练。
 
-2026-08-15 的 Debian 12 自动演练已通过，记录见 [`debian-ci-2026-08-15.json`](../evidence/debian-ci-2026-08-15.json) 和 [GitHub Actions 运行 #31892016810](https://github.com/Himifox/NEKO-ONE/actions/runs/31892016810)。该运行还使用 Debian 的 Nginx 包对 `neko.pardofelis.wiki` 配置执行了真实语法检查。
+2026-08-16 的 PostgreSQL 自动演练已在 Debian 12 + PostgreSQL 15 上通过，记录见 [GitHub Actions #31895702560](https://github.com/Himifox/NEKO-ONE/actions/runs/31895702560)。该运行使用真实 `pg_dump`/`pg_restore`，并覆盖 Memory SQLite、私有文件、篡改与路径穿越拒绝；它仍不替代使用生产备份完成的异机恢复演练。
 
 ## 恢复目标
 
@@ -14,11 +14,12 @@
 
 | 清单根 | 内容 | 一致性方式 |
 | --- | --- | --- |
-| `public` | `public-room.db`、会话/管理密钥、共享语音、Live2D 派生文件 | SQLite online backup；普通文件稳定复制 |
+| `postgresql` | 房间、消息、事件、游客、turn、审核和运行设置 | `pg_dump --format=custom`；schema、逐表数量和序号高水位清单 |
+| `public` | 会话/管理密钥、共享语音、Live2D 文件 | 普通文件稳定复制 |
 | `memory` | Persona、Recent、Facts、Reflections、Memory SQLite/日志及服务端模型配置 | 停止 Memory 写入后快照；其中 SQLite 仍使用 online backup |
 | `private-config` | `/etc/neko-public.env` 或等价私有环境文件 | 稳定复制；始终视为密钥材料 |
 
-`scripts/manage_backup.py` 不直接复制活动 SQLite 文件，也不会把 `-wal`、`-shm` 或 `-journal` 当成备份内容。每个 SQLite 快照会转换为自包含的 DELETE journal 模式，并记录 `integrity_check`、外键检查、`user_version`、表清单和房间 `last_seq`。
+`scripts/manage_backup.py` 不复制 PostgreSQL 数据目录，也不直接复制活动 SQLite 文件。公共业务库生成一个自定义格式 `public-room.dump`，并记录 schema 版本、逐表数量、房间 `last_seq` 和事件高水位；Memory SQLite 快照会转换为自包含的 DELETE journal 模式，并记录完整性、外键和表清单。任何 `-wal`、`-shm` 或 `-journal` 都不会被当作备份内容。
 
 ## 安全边界
 
@@ -36,7 +37,7 @@
 
 先确认 `/var/lib/neko` 是这台机器实际使用的 Memory/私有模型配置根。若部署路径不同，必须使用真实路径，不能照抄示例。
 
-Memory 涉及多个文件之间的逻辑一致性，因此创建快照时暂停 Memory 服务。公共房间可继续运行并自动降级；其活动 SQLite 通过 online backup 获取一致视图。为降低失败重试，建议在低流量窗口执行。
+Memory 涉及多个文件之间的逻辑一致性，因此创建快照时暂停 Memory 服务。公共房间可继续运行并自动降级记忆；PostgreSQL 由 `pg_dump` 的一致事务快照保护。工具要求 dump 前后的 schema、数量和高水位一致，因此应在低流量窗口执行，变化过快时会安全失败并要求重试。
 
 ```bash
 sudo systemctl stop neko-memory
@@ -45,6 +46,7 @@ sudo -u neko /opt/neko-one/.venv/bin/python \
   /opt/neko-one/scripts/manage_backup.py create \
   --output /var/lib/neko-backup-staging/2026-08-15T120000Z \
   --public-data /var/lib/neko-public \
+  --environment-file /etc/neko-public.env \
   --memory-data /var/lib/neko \
   --private-config /etc/neko-public.env \
   --persona-version persona-2026-08-15
@@ -53,7 +55,7 @@ sudo systemctl start neko-memory
 sudo systemctl is-active --quiet neko-memory
 ```
 
-如果 `create` 失败，先恢复 Memory 服务，再调查源文件持续变化、权限、磁盘空间或 SQLite 完整性错误。不得加 `|| true` 继续上传失败快照。
+如果 `create` 失败，先恢复 Memory 服务，再调查 PostgreSQL 连接、`pg_dump` 版本、源数据持续变化、文件权限、磁盘空间或 Memory SQLite 完整性错误。不得加 `|| true` 继续上传失败快照。
 
 立即校验明文快照：
 
@@ -87,13 +89,34 @@ tar -C /var/lib/neko-backup-staging -czf - 2026-08-15T120000Z \
 
 ```text
 result/2026-08-15T120000Z/
+  data/postgresql/public-room.dump
   data/public/
   data/memory/
   data/private-config/
   restore-report.json
 ```
 
-工具会在原子发布前重新检查所有 SHA-256，并打开每个恢复后的 SQLite 执行完整性、外键和元数据比对。任一文件缺失、增加、损坏、路径逃逸或数据库语义不一致都会使恢复失败。
+文件恢复会在原子发布前重新检查所有 SHA-256，使用 `pg_restore --list` 检查 PostgreSQL 归档，并打开每个恢复后的 Memory SQLite 执行完整性、外键和元数据比对。任一文件缺失、增加、损坏、路径逃逸或语义不一致都会使恢复失败。
+
+PostgreSQL 必须恢复到新建的空数据库。准备一个只在隔离主机使用、权限为
+`0600` 的环境文件，例如：
+
+```dotenv
+NEKO_POSTGRES_RESTORE_URL=postgresql://neko_restore:...@127.0.0.1:5432/neko_restore_20260816
+```
+
+数据库名必须由操作员再次明确确认；目标存在任何 public 表都会被拒绝：
+
+```bash
+/opt/neko-one/.venv/bin/python scripts/manage_backup.py restore-postgres \
+  --backup /srv/restore/source/2026-08-15T120000Z \
+  --environment-file /etc/neko-restore.env \
+  --confirm-empty-database neko_restore_20260816
+```
+
+`pg_restore` 使用 `--single-transaction --exit-on-error`。恢复后工具重新比对
+schema 版本、逐表数量、房间 `last_seq` 和事件高水位；失败时不得在该数据库上
+手工补洞，应保留日志后丢弃整个隔离数据库并重新演练。
 
 ## 独立机器恢复演练
 
@@ -101,7 +124,7 @@ result/2026-08-15T120000Z/
 
 1. 备份对象 ID、创建时间、应用 commit、Persona 版本和加密方式；
 2. 恢复主机、操作人、开始/完成时间、RTO 和总字节数；
-3. `manage_backup.py verify` 与 `restore` 的完整输出；
+3. `manage_backup.py verify`、`restore` 与 `restore-postgres` 的完整输出；
 4. 用恢复的环境文件启动 loopback-only Memory 与公共服务；
 5. 管理员登录、房间 `last_seq`、历史消息、Persona、访客隔离记忆和共享语音抽样；
 6. 创建一个恢复后的新 turn，确认序号从清单高水位继续且没有覆盖旧消息；
@@ -115,4 +138,4 @@ result/2026-08-15T120000Z/
 uv --cache-dir .uv-cache run --locked python scripts/verify_backup_restore.py
 ```
 
-该脚本使用临时假数据验证活动 WAL 数据库的在线快照、Memory SQLite/Persona、私有配置、备份后写入隔离、原子恢复、损坏检测和恶意清单路径拒绝。它不会读取或修改正式数据。
+该脚本只允许在名称含 `test`/`verify`/`ci` 的受控数据库中执行。它验证真实 `pg_dump`/`pg_restore`、非空目标拒绝、Memory SQLite/Persona、私有配置、备份后写入隔离、损坏检测和恶意清单路径拒绝，不会读取或修改正式数据。

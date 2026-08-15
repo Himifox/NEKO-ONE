@@ -26,6 +26,7 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 import psycopg
+from dotenv import dotenv_values
 from psycopg.conninfo import conninfo_to_dict
 from psycopg.rows import dict_row
 
@@ -778,6 +779,11 @@ def _parser() -> argparse.ArgumentParser:
     create = subparsers.add_parser("create", help="create a new plaintext staging snapshot")
     create.add_argument("--output", type=Path, required=True)
     create.add_argument("--public-data", type=Path, required=True)
+    create.add_argument(
+        "--environment-file",
+        type=Path,
+        help="private env file containing NEKO_PUBLIC_DATABASE_URL",
+    )
     create.add_argument("--memory-data", type=Path)
     create.add_argument("--private-config", type=Path)
     create.add_argument("--persona-version", default="operator-unset")
@@ -795,6 +801,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     restore_postgres.add_argument("--backup", type=Path, required=True)
     restore_postgres.add_argument("--confirm-empty-database", required=True)
+    restore_postgres.add_argument(
+        "--environment-file",
+        type=Path,
+        help="private env file containing NEKO_POSTGRES_RESTORE_URL",
+    )
     return parser
 
 
@@ -802,9 +813,18 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "create":
+            database_url = None
+            if args.environment_file is not None:
+                values = dotenv_values(args.environment_file)
+                database_url = str(values.get("NEKO_PUBLIC_DATABASE_URL") or "")
+                if not database_url.startswith(("postgresql://", "postgres://")):
+                    raise BackupError(
+                        "environment file lacks a valid NEKO_PUBLIC_DATABASE_URL"
+                    )
             manifest = create_backup(
                 output=args.output,
                 public_data=args.public_data,
+                database_url=database_url,
                 memory_data=args.memory_data,
                 private_config=args.private_config,
                 persona_version=args.persona_version,
@@ -821,9 +841,24 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "restore":
             result = restore_backup(backup=args.backup, destination=args.destination)
         else:
+            restore_database_url = None
+            if args.environment_file is not None:
+                values = dotenv_values(args.environment_file)
+                restore_database_url = str(
+                    values.get("NEKO_POSTGRES_RESTORE_URL") or ""
+                )
+                if not restore_database_url.startswith(
+                    ("postgresql://", "postgres://")
+                ):
+                    raise BackupError(
+                        "environment file lacks a valid NEKO_POSTGRES_RESTORE_URL"
+                    )
             result = restore_postgres_backup(
                 backup=args.backup,
-                database_url=_postgres_url("NEKO_POSTGRES_RESTORE_URL"),
+                database_url=(
+                    restore_database_url
+                    or _postgres_url("NEKO_POSTGRES_RESTORE_URL")
+                ),
                 confirm_empty_database=args.confirm_empty_database,
             )
     except BackupError as exc:

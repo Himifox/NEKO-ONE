@@ -19,7 +19,7 @@ from manage_backup import (
     BackupError,
     MANIFEST_DIGEST_NAME,
     MANIFEST_NAME,
-    create_backup,
+    main as manage_backup_main,
     restore_backup,
     restore_postgres_backup,
     verify_backup,
@@ -110,13 +110,28 @@ def main() -> None:
             )
             memory_connection.execute("INSERT INTO facts(value) VALUES('visitor likes tea')")
 
-        manifest = create_backup(
-            output=backup,
-            public_data=public,
-            memory_data=memory,
-            private_config=private,
-            persona_version="persona-v7",
+        source_environment = temporary / "source.env"
+        source_environment.write_text(
+            f"NEKO_PUBLIC_DATABASE_URL={database_url()}\n", encoding="utf-8"
         )
+        assert manage_backup_main(
+            [
+                "create",
+                "--output",
+                str(backup),
+                "--public-data",
+                str(public),
+                "--environment-file",
+                str(source_environment),
+                "--memory-data",
+                str(memory),
+                "--private-config",
+                str(private),
+                "--persona-version",
+                "persona-v7",
+            ]
+        ) == 0
+        manifest = json.loads((backup / MANIFEST_NAME).read_text(encoding="utf-8"))
         assert manifest["plaintext"] is True
         assert manifest["encryption_required_before_transfer"] is True
         assert manifest["persona_version"] == "persona-v7"
@@ -174,13 +189,21 @@ def main() -> None:
             restore_database_name = restore_connection.execute(
                 "SELECT current_database() AS database"
             ).fetchone()["database"]
-        postgres_restore = restore_postgres_backup(
-            backup=backup,
-            database_url=restore_database_url,
-            confirm_empty_database=str(restore_database_name),
+        restore_environment = temporary / "restore.env"
+        restore_environment.write_text(
+            f"NEKO_POSTGRES_RESTORE_URL={restore_database_url}\n", encoding="utf-8"
         )
-        assert postgres_restore["ok"] is True
-        assert postgres_restore["postgresql"]["room_last_seq"] == {"main": 7}
+        assert manage_backup_main(
+            [
+                "restore-postgres",
+                "--backup",
+                str(backup),
+                "--environment-file",
+                str(restore_environment),
+                "--confirm-empty-database",
+                str(restore_database_name),
+            ]
+        ) == 0
         with psycopg.connect(
             restore_database_url, row_factory=dict_row
         ) as restored_connection:
