@@ -4,6 +4,7 @@
 
 ## 当前设计
 
+- [产品路线图](../roadmap.md)：从单房间 Alpha、公网 Beta 到身份、多房间和 1.0 的阶段目标与验收门槛。
 - [公共房间 Web 架构](./public-room-web-architecture.md)：产品边界、组件职责、消息协议、身份、安全、部署与迁移计划。
 - [长期记忆架构](../architecture/memory-system.md)：Recent → Facts → Reflections → Persona 的证据链与召回流程。
 

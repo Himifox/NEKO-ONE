@@ -11,7 +11,7 @@
 ![WebSocket](https://img.shields.io/badge/WebSocket-Realtime-6A5ACD)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue)
 
-[快速开始](#快速开始) · [它有什么不同](#它有什么不同) · [架构](#架构) · [部署](#部署到公网) · [设计文档](docs/design/public-room-web-architecture.md)
+[快速开始](#快速开始) · [它有什么不同](#它有什么不同) · [架构](#架构) · [路线图](docs/roadmap.md) · [部署](#部署到公网) · [设计文档](docs/design/public-room-web-architecture.md)
 
 </div>
 
@@ -197,6 +197,8 @@ Agent Server、插件市场、浏览器/电脑控制、Steam、云存档、游�
 ## 当前版本
 
 `v0.1` 是可部署的单房间基线，设计目标为 **10–50 人的小型公共房间**。当前使用游客身份、单实例和 SQLite；账号体系、多实例协调、直播平台接入以及公开声音配置不在第一版范围内。
+
+后续阶段、进入条件和验收门槛见 [产品路线图](docs/roadmap.md)。当前优先完成阶段 1 的真实供应商、公网安全、容量和备份恢复验收，再进入阶段 2。
 
 ## 项目结构
 
