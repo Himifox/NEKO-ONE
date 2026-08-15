@@ -9,11 +9,57 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+FORBIDDEN_LEGACY_SOURCES = (
+    "utils/capture_bridge.py",
+    "utils/cloudsave_autocloud.py",
+    "utils/document_parser.py",
+    "utils/game_log.py",
+    "utils/game_route_state.py",
+    "utils/icebreaker_route_state.py",
+    "utils/meme_fetcher.py",
+    "utils/music_crawlers.py",
+    "utils/prompt_state",
+    "utils/pyautogui_diagnostics.py",
+    "utils/screenshot_utils.py",
+    "utils/seven_day_tutorial_state.py",
+    "utils/steam_cloud_bundle.py",
+    "utils/survey_client.py",
+    "utils/twitch_auth.py",
+    "utils/voice_clone.py",
+    "utils/voice_design.py",
+    "utils/web_scraper",
+    "utils/workshop_utils.py",
+    "config/prompts/prompts_agent.py",
+    "config/prompts/prompts_badminton.py",
+    "config/prompts/prompts_card_assist.py",
+    "config/prompts/prompts_galgame.py",
+    "config/prompts/prompts_minigame_route.py",
+    "config/prompts/prompts_soccer.py",
+)
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
 def main() -> None:
+    residual_sources = []
+    for relative in FORBIDDEN_LEGACY_SOURCES:
+        candidate = ROOT / relative
+        if candidate.suffix == ".py" and candidate.is_file():
+            residual_sources.append(relative)
+        elif candidate.is_dir() and any(candidate.rglob("*.py")):
+            residual_sources.append(relative)
+    assert not residual_sources, f"legacy source returned to public tree: {residual_sources}"
+
+    from config import DEFAULT_LANLAN_TEMPLATE, DEFAULT_LIVE2D_MODEL_PATH
+
+    assert DEFAULT_LIVE2D_MODEL_PATH == "", "a bundled character model returned"
+    default_character = next(iter(DEFAULT_LANLAN_TEMPLATE.values()))
+    avatar_defaults = default_character["_reserved"]["avatar"]
+    assert not ({"vrm", "mmd", "pngtuber"} & set(avatar_defaults)), (
+        "alternate renderer defaults returned"
+    )
+
     with tempfile.TemporaryDirectory(prefix="neko-boundary-") as temporary:
         os.environ["NEKO_PUBLIC_DATA_DIR"] = temporary
         os.environ["NEKO_PUBLIC_LIVE2D_MODEL_NAME"] = ""

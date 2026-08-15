@@ -94,7 +94,6 @@ from utils.tts.native_voice_registry import (  # noqa: F401
     is_saveable_native_voice,
 )
 from utils.persona_presets import PERSONA_OVERRIDE_FIELDS  # noqa: F401
-from utils.steam_state import get_steamworks  # noqa: F401
 
 from ._shared import (  # noqa: F401
     LocalStateDirectoryError,
@@ -133,10 +132,8 @@ from .persona_payload import (  # noqa: F401
 from .characters import CharactersMixin
 from .core_config import CoreConfigMixin
 from .migrations import MigrationsMixin
-from .quota import QuotaMixin
 from .storage_roots import StorageRootsMixin
 from .voice_storage import VoiceStorageMixin
-from .workshop import WorkshopMixin
 
 
 class ConfigManager(
@@ -145,24 +142,12 @@ class ConfigManager(
     CharactersMixin,
     VoiceStorageMixin,
     CoreConfigMixin,
-    QuotaMixin,
-    WorkshopMixin,
 ):
     """Config file manager"""
-    _agent_quota_lock = threading.Lock()
     _selected_root_unavailable_recovery_override_roots: set[str] = set()
-    _free_agent_daily_limit = 500 # 免费配额并非只在本地实施，本地计算是为了减少无效请求、节约网络带宽。
-    # 本地每日配额只对真正的免费 Agent 模型计数；模型名与 config/api_providers.json 的 assist free profile 保持一致。
-    _free_agent_model_name = "free-agent-model"
-    # 配额耗尽时给前端弹提示的节流：与 _agent_quota_lock 不同的锁，避免在持有配额锁时重入。
-    # notifier 由 agent_server 在启动时注册（进程级），收到耗尽信号最多每 _quota_notify_interval_s 秒触发一次。
-    _quota_notify_lock = threading.Lock()
     # openclawUrl 8089→8088 落盘迁移的进程内串行化。_config_manager_migrated 那个标志
     # 本身不是线程安全的，两个线程可能同时看到 False 各跑一遍迁移。
     _openclaw_migration_lock = threading.Lock()
-    _quota_notify_interval_s = 10.0
-    _quota_notify_last_monotonic = 0.0
-    _quota_exceeded_notifier = None
     ROOT_STATE_VERSION = 1
     CLOUDSAVE_LOCAL_STATE_VERSION = 2
     CHARACTER_TOMBSTONES_STATE_VERSION = 1
@@ -290,28 +275,3 @@ def load_json_config(filename, default_value=None):
 def save_json_config(filename, data):
     """Save JSON config"""
     return get_config_manager().save_json_config(filename, data)
-
-# Workshop配置便捷函数
-def load_workshop_config():
-    """Load workshop config"""
-    return get_config_manager().load_workshop_config()
-
-def save_workshop_config(config_data):
-    """Save workshop config"""
-    return get_config_manager().save_workshop_config(config_data)
-
-def save_workshop_path(workshop_path):
-    """Set the Steam Workshop root directory path (runtime)"""
-    return get_config_manager().save_workshop_path(workshop_path)
-
-def persist_user_workshop_folder(workshop_path):
-    """Persist the actual Steam Workshop path into the config file (written only once per startup)"""
-    return get_config_manager().persist_user_workshop_folder(workshop_path)
-
-def get_steam_workshop_path():
-    """Get the Steam Workshop root directory path (runtime)"""
-    return get_config_manager().get_steam_workshop_path()
-
-def get_workshop_path():
-    """Get the workshop root directory path"""
-    return get_config_manager().get_workshop_path()

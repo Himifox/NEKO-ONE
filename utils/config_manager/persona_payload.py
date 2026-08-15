@@ -30,12 +30,12 @@ from ._shared import logger
 from .reserved_schema import get_reserved, set_reserved
 
 
-DEFAULT_YUI_LIVE2D_MODEL_PATH = "yui-lolita/yui-lolita.model3.json"
+DEFAULT_YUI_LIVE2D_MODEL_PATH = ""
 
 # 默认皮肤从 yui-origin 换成 yui-lolita 之后，存量用户的 YUI 卡里仍然写着
 # yui-origin。两个内置模型都算"还在用原装 YUI 卡"，否则老用户会在换默认皮肤
 # 那一刻掉出免费 YUI 音色的兜底（见 ensure_default_yui_voice_for_free_api）。
-_BUILTIN_YUI_LIVE2D_MODEL_NAMES = ("yui-lolita", "yui-origin")
+_BUILTIN_YUI_LIVE2D_MODEL_NAMES: tuple[str, ...] = ()
 BUILTIN_YUI_LIVE2D_MODEL_PATHS = frozenset(
     f"{name}/{name}.model3.json" for name in _BUILTIN_YUI_LIVE2D_MODEL_NAMES
 )

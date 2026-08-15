@@ -16,7 +16,6 @@
 """Default character, avatar, lighting, and localized profile configuration."""
 
 from copy import deepcopy
-from types import MappingProxyType
 
 from .prompts.prompts_chara import (
     get_lanlan_prompt,
@@ -30,7 +29,6 @@ CONFIG_FILES = [
     'core_config.json',
     'user_preferences.json',
     'voice_storage.json',
-    'workshop_config.json',
 ]
 
 DEFAULT_MASTER_TEMPLATE = {
@@ -39,16 +37,10 @@ DEFAULT_MASTER_TEMPLATE = {
     "昵称": "哥哥",
 }
 
-# 默认 Live2D 模型名（不带后缀的目录/文件 stem）。
-# DEFAULT_LANLAN_TEMPLATE.live2d.model_path 与 main_routers/characters_router.py
-# 里"未设置 Live2D 模型时的回退"逻辑共享这个常量，避免两处漂移。新增/替换默认
-# 模型只需要改这一处。
-DEFAULT_LIVE2D_MODEL_NAME = "yui-lolita"
-DEFAULT_LIVE2D_MODEL_PATH = f"{DEFAULT_LIVE2D_MODEL_NAME}/{DEFAULT_LIVE2D_MODEL_NAME}.model3.json"
-
-# 随包发的内置 Live2D 模型（assets/<name>.tar.gz → static/<name>/）。角色卡导出/
-# 创意工坊上传要靠这个集合识别"这不是用户自己导入的模型，不用打进包里"。
-BUILTIN_LIVE2D_MODEL_NAMES = ("yui-lolita", "yui-origin")
+# Public character assets are operator-installed and licensed separately.
+DEFAULT_LIVE2D_MODEL_NAME = ""
+DEFAULT_LIVE2D_MODEL_PATH = ""
+BUILTIN_LIVE2D_MODEL_NAMES: tuple[str, ...] = ()
 
 DEFAULT_LANLAN_TEMPLATE = {
     "test": {
@@ -63,122 +55,12 @@ DEFAULT_LANLAN_TEMPLATE = {
                 "asset_source": "local",
                 "asset_source_id": "",
                 "live2d": {
-                    "model_path": DEFAULT_LIVE2D_MODEL_PATH,
-                },
-                "vrm": {
                     "model_path": "",
-                    "animation": None,
-                    "idle_animation": [],
-                    "lighting": None,
-                },
-                "mmd": {
-                    "model_path": "",
-                    "animation": None,
-                    "idle_animation": [],
                 },
             },
         },
     }
 }
-
-_DEFAULT_VRM_LIGHTING_MUTABLE = {
-    # 与前端 vrm-core.js defaultLighting 保持一致
-    "ambient": 0.83,  # HemisphereLight 强度
-    "main": 1.91,     # 主光源强度
-    "fill": 0.0,      # 补光强度（简化模式下禁用）
-    "rim": 0.0,       # 轮廓光强度（简化模式下禁用，MToon 内建处理）
-    "top": 0.0,       # 顶光强度（简化模式下禁用）
-    "bottom": 0.0,    # 底光强度（简化模式下禁用）
-    "exposure": 1.1,  # 曝光值
-    "toneMapping": 7, # 色调映射类型 (7 = NeutralToneMapping)
-    "outlineWidthScale": 1.0, # 描边粗细倍率
-}
-
-DEFAULT_VRM_LIGHTING = MappingProxyType(_DEFAULT_VRM_LIGHTING_MUTABLE)
-
-VRM_LIGHTING_RANGES = {
-    'ambient': (0, 1.0),
-    'main': (0, 2.5),
-    'fill': (0, 1.0),
-    'rim': (0, 1.5),
-    'top': (0, 1.0),
-    'bottom': (0, 0.5),
-    'exposure': (-10.0, 10.0),
-    'toneMapping': (0, 7),
-    'outlineWidthScale': (0, 3.0),
-}
-
-
-def get_default_vrm_lighting() -> dict[str, float]:
-    """Get a copy of the default VRM lighting config"""
-    return dict(DEFAULT_VRM_LIGHTING)
-
-
-# ─── MMD 默认设置 ───
-_DEFAULT_MMD_LIGHTING_MUTABLE = {
-    "ambientIntensity": 3.0,
-    "ambientColor": "#aaaaaa",
-    "directionalIntensity": 2.0,
-    "directionalColor": "#ffffff",
-}
-
-DEFAULT_MMD_LIGHTING = MappingProxyType(_DEFAULT_MMD_LIGHTING_MUTABLE)
-
-MMD_LIGHTING_RANGES = {
-    "ambientIntensity": (0, 10.0),
-    "directionalIntensity": (0, 10.0),
-}
-
-_DEFAULT_MMD_RENDERING_MUTABLE = {
-    "toneMapping": 7,
-    "exposure": 1.0,
-    "outline": True,
-    "pixelRatio": 0,
-}
-
-DEFAULT_MMD_RENDERING = MappingProxyType(_DEFAULT_MMD_RENDERING_MUTABLE)
-
-MMD_RENDERING_RANGES = {
-    "toneMapping": (0, 7),
-    "exposure": (0, 5.0),
-    "pixelRatio": (0, 2.0),
-}
-
-_DEFAULT_MMD_PHYSICS_MUTABLE = {
-    "enabled": True,
-    "strength": 1.0,
-}
-
-DEFAULT_MMD_PHYSICS = MappingProxyType(_DEFAULT_MMD_PHYSICS_MUTABLE)
-
-MMD_PHYSICS_RANGES = {
-    "strength": (0.1, 2.0),
-}
-
-_DEFAULT_MMD_CURSOR_FOLLOW_MUTABLE = {
-    "enabled": True,
-    "headYaw": 30,
-    "headPitch": 20,
-    "smoothSpeed": 3.0,
-}
-
-DEFAULT_MMD_CURSOR_FOLLOW = MappingProxyType(_DEFAULT_MMD_CURSOR_FOLLOW_MUTABLE)
-
-MMD_CURSOR_FOLLOW_RANGES = {
-    "headYaw": (10, 50),
-    "headPitch": (5, 30),
-    "smoothSpeed": (1.0, 8.0),
-}
-
-
-def get_default_mmd_settings() -> dict:
-    """Get a copy of the default MMD settings"""
-    return {
-        "lighting": dict(DEFAULT_MMD_LIGHTING),
-        "rendering": dict(DEFAULT_MMD_RENDERING),
-        "physics": dict(DEFAULT_MMD_PHYSICS),
-        "cursor_follow": dict(DEFAULT_MMD_CURSOR_FOLLOW),
-    }
 
 DEFAULT_CHARACTERS_CONFIG = {
     "主人": deepcopy(DEFAULT_MASTER_TEMPLATE),
