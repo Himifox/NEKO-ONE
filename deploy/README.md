@@ -43,6 +43,7 @@ uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_public_roo
 uv --cache-dir .uv-cache run --active --no-sync python scripts/check_public_boundary.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_deployment_security.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_room_capacity.py
+uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_backup_restore.py
 ```
 
 The last script validates the example files, not the installed Nginx binary.
@@ -53,3 +54,8 @@ The capacity command above is the short deterministic baseline. Run the 30
 minute profiles and 24 hour soak from
 [`docs/operations/capacity-and-soak.md`](../docs/operations/capacity-and-soak.md)
 before public acceptance.
+
+The backup command creates a plaintext staging snapshot and must not be copied
+off-host until it is encrypted. Exact create, verify, isolated restore and
+separate-host drill steps are in
+[`docs/operations/backup-and-restore.md`](../docs/operations/backup-and-restore.md).
