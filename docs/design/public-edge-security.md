@@ -39,6 +39,7 @@ OpenResty 对超出速率或连接数的请求返回 429。应用仍保留访客
 - 管理页面与管理 API 使用 `Cache-Control: no-store`；
 - OpenResty 在应用登录之前对 `/admin`、`/admin-assets/*` 和
   `/api/v1/admin/*` 统一执行独立 Basic Auth；边缘密码与应用管理员密码不得复用；
+- `/live2d-assets` 只允许当前 descriptor 引用文件；`/speech-assets` 只允许服务生成的 UUID WAV 文件，其他数据目录文件统一返回 404；
 - 管理 Cookie 为 `HttpOnly`、`SameSite=Strict`，游客 Cookie 为 `HttpOnly`、`SameSite=Lax`，公网必须启用 `Secure`。
 
 第一版由 `pardofelis-web` 普通链接进入 `https://neko.pardofelis.wiki/`，默认不允许 iframe。未来确需嵌入时，必须同时把应用和 OpenResty 的 `frame-ancestors 'none'` 改为精确的 `https://pardofelis.wiki`；禁止使用 `*`，并重新验证 Cookie 与点击劫持边界。

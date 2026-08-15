@@ -60,6 +60,14 @@ def main() -> None:
     (data_dir / "live2d" / "private-note.txt").write_text(
         "must not be public", encoding="utf-8"
     )
+    speech_root = data_dir / "speech"
+    speech_root.mkdir(parents=True, exist_ok=True)
+    public_speech_name = f"speech_{'a' * 32}.wav"
+    (speech_root / public_speech_name).write_bytes(b"RIFF-verification")
+    (speech_root / "private-note.txt").write_text(
+        "must not be public", encoding="utf-8"
+    )
+    (speech_root / f"{public_speech_name}.tmp").write_bytes(b"partial")
 
     from fastapi.testclient import TestClient
 
@@ -95,6 +103,11 @@ def main() -> None:
             assert avatar.json()["enabled"] is False
             assert avatar.json()["status"] == "not_configured"
             assert client.get("/live2d-assets/private-note.txt").status_code == 404
+            assert client.get(f"/speech-assets/{public_speech_name}").status_code == 200
+            assert client.get("/speech-assets/private-note.txt").status_code == 404
+            assert client.get(
+                f"/speech-assets/{public_speech_name}.tmp"
+            ).status_code == 404
             real_engine_readiness = app.state.room_service.engine.readiness_snapshot
             real_memory_health = app.state.room_service.memory.health_snapshot
             real_storage_readiness = app.state.room_service.store.readiness_snapshot

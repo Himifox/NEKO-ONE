@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path, PurePosixPath
 
@@ -34,6 +35,16 @@ class AllowlistedStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope: Scope) -> Response:
         normalized = PurePosixPath(path).as_posix()
         if normalized not in self.allowed_paths:
+            return Response(status_code=404)
+        return await super().get_response(path, scope)
+
+
+class SpeechStaticFiles(StaticFiles):
+    _public_name = re.compile(r"^speech_[0-9a-f]{32}\.wav$")
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        normalized = PurePosixPath(path).as_posix()
+        if "/" in normalized or self._public_name.fullmatch(normalized) is None:
             return Response(status_code=404)
         return await super().get_response(path, scope)
 
@@ -152,7 +163,7 @@ def create_app() -> FastAPI:
     )
     application.mount(
         "/speech-assets",
-        StaticFiles(directory=service.speech.audio_root),
+        SpeechStaticFiles(directory=service.speech.audio_root),
         name="public-speech-assets",
     )
     application.mount(
