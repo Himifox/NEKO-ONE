@@ -1,7 +1,7 @@
 """Deterministic multi-visitor capacity and soak verification.
 
 This exercises the production RoomConnectionHub, RoomDirector, single-writer
-SQLite path and PublicRoomService task lifecycle while replacing paid external
+PostgreSQL path and PublicRoomService task lifecycle while replacing paid external
 providers with bounded local fakes. It is not a substitute for the separate
 real-provider acceptance run.
 """
@@ -13,7 +13,6 @@ import asyncio
 import json
 import math
 import os
-import sqlite3
 import sys
 import tempfile
 import time
@@ -27,6 +26,14 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from scripts.verification_postgres import (
+    PUBLIC_TABLES,
+    connect,
+    database_url,
+    reset_public_tables,
+    scalar,
+)
 
 
 @dataclass(slots=True)
@@ -86,9 +93,9 @@ class ProfileResult:
     max_director_depth: int
     max_generation_concurrency: int
     room_last_seq: int
-    sqlite_messages: int
-    sqlite_events: int
-    sqlite_turns: int
+    postgres_messages: int
+    postgres_events: int
+    postgres_turns: int
     peak_python_mib: float
     python_end_mib: float
     python_growth_mib: float
@@ -155,13 +162,14 @@ async def wait_for_room_drain(service, expected_messages: int, timeout: float) -
 async def run_profile(args: argparse.Namespace, visitors_count: int) -> ProfileResult:
     from main_logic.room.service import PublicRoomService
 
+    reset_public_tables()
     workspace_var = ROOT / "var"
     workspace_var.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(
         prefix=f"capacity-{visitors_count}-", dir=workspace_var
     ) as temporary:
         data_dir = Path(temporary)
-        service = PublicRoomService(database_path=data_dir / "public-room.db")
+        service = PublicRoomService(database_url=database_url(), data_dir=data_dir)
         service.controls["proactive_enabled"] = False
         service.speech._disabled = False
 
@@ -210,6 +218,7 @@ async def run_profile(args: argparse.Namespace, visitors_count: int) -> ProfileR
         service.speech.synthesize = fake_speech
 
         await service.start()
+        wal_start = scalar("SELECT pg_current_wal_lsn()::text AS lsn")
         await service.update_limits(
             {
                 "max_message_chars": 2000,
@@ -373,37 +382,33 @@ async def run_profile(args: argparse.Namespace, visitors_count: int) -> ProfileR
             assert socket.stats.persisted_events == expected_last_seq
             assert socket.stats.max_active_generations == 1
 
-        database_path = data_dir / "public-room.db"
-        connection = sqlite3.connect(database_path)
-        try:
-            sqlite_messages = connection.execute(
-                "SELECT COUNT(*) FROM messages"
-            ).fetchone()[0]
-            sqlite_events = connection.execute(
-                "SELECT COUNT(*) FROM room_events"
-            ).fetchone()[0]
-            sqlite_turns = connection.execute(
-                "SELECT COUNT(*) FROM turns"
-            ).fetchone()[0]
+        with connect() as connection:
+            postgres_messages = connection.execute(
+                "SELECT COUNT(*) AS count FROM messages"
+            ).fetchone()["count"]
+            postgres_events = connection.execute(
+                "SELECT COUNT(*) AS count FROM room_events"
+            ).fetchone()["count"]
+            postgres_turns = connection.execute(
+                "SELECT COUNT(*) AS count FROM turns"
+            ).fetchone()["count"]
             distinct_sequences = connection.execute(
-                "SELECT COUNT(DISTINCT room_seq) FROM room_events"
-            ).fetchone()[0]
+                "SELECT COUNT(DISTINCT room_seq) AS count FROM room_events"
+            ).fetchone()["count"]
             running_turns = connection.execute(
-                "SELECT COUNT(*) FROM turns WHERE status != 'completed'"
-            ).fetchone()[0]
+                "SELECT COUNT(*) AS count FROM turns WHERE status != 'completed'"
+            ).fetchone()["count"]
             reply_rows = connection.execute(
                 "SELECT metadata_json FROM messages WHERE author_type = 'neko'"
             ).fetchall()
-        finally:
-            connection.close()
-        assert sqlite_messages == submitted * 2
-        assert sqlite_events == expected_last_seq
-        assert sqlite_turns == submitted
+        assert postgres_messages == submitted * 2
+        assert postgres_events == expected_last_seq
+        assert postgres_turns == submitted
         assert distinct_sequences == expected_last_seq
         assert running_turns == 0
         replied_by_visitor: Counter[str] = Counter()
-        for (metadata_raw,) in reply_rows:
-            metadata = json.loads(metadata_raw)
+        for row in reply_rows:
+            metadata = row["metadata_json"]
             replied_by_visitor[str(metadata["target_visitor_id"])] += 1
         assert replied_by_visitor == submitted_by_visitor
 
@@ -417,9 +422,21 @@ async def run_profile(args: argparse.Namespace, visitors_count: int) -> ProfileR
         assert await service.hub.online_count("main") == 0
         assert len(relevant_tasks()) == baseline_tasks
 
-        database_mib = database_path.stat().st_size / (1024 * 1024)
-        wal_path = database_path.with_name(f"{database_path.name}-wal")
-        wal_mib = wal_path.stat().st_size / (1024 * 1024) if wal_path.exists() else 0.0
+        database_bytes = scalar(
+            """
+            SELECT COALESCE(
+                SUM(pg_total_relation_size(format('%I.%I', schemaname, tablename)::regclass)),
+                0
+            )
+            FROM pg_tables
+            WHERE schemaname = current_schema() AND tablename = ANY(%s)
+            """,
+            (list(PUBLIC_TABLES),),
+        )
+        wal_bytes = scalar(
+            "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), %s::pg_lsn)",
+            (wal_start,),
+        )
         result = ProfileResult(
             visitors=visitors_count,
             submitted_messages=submitted,
@@ -431,17 +448,17 @@ async def run_profile(args: argparse.Namespace, visitors_count: int) -> ProfileR
             ),
             max_generation_concurrency=generation_max,
             room_last_seq=room["last_seq"],
-            sqlite_messages=sqlite_messages,
-            sqlite_events=sqlite_events,
-            sqlite_turns=sqlite_turns,
+            postgres_messages=postgres_messages,
+            postgres_events=postgres_events,
+            postgres_turns=postgres_turns,
             peak_python_mib=round(peak_memory / (1024 * 1024), 3),
             python_end_mib=round(current_memory / (1024 * 1024), 3),
             python_growth_mib=round(
                 (current_memory - first_memory) / (1024 * 1024), 3
             ),
             max_runtime_tasks=int(monitor_stats["max_tasks"] or 0),
-            database_mib=round(database_mib, 3),
-            wal_mib=round(wal_mib, 3),
+            database_mib=round(float(database_bytes) / (1024 * 1024), 3),
+            wal_mib=round(float(wal_bytes) / (1024 * 1024), 3),
             slow_client_isolated=True,
             writer_tasks_after_disconnect=writer_tasks_after_disconnect,
             progress_samples=progress_samples,

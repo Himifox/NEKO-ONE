@@ -6,17 +6,17 @@ import asyncio
 import json
 import os
 import shutil
-import sqlite3
 import sys
 import tempfile
 import time
-from contextlib import closing
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.verification_postgres import connect, database_url, reset_public_tables
 
 
 def _drain_until(websocket, wanted: str, limit: int = 30) -> list[dict]:
@@ -48,6 +48,7 @@ def _wait_for_dependency(
 
 
 def main() -> None:
+    reset_public_tables()
     workspace_var = Path.cwd() / "var"
     workspace_var.mkdir(exist_ok=True)
     data_dir = Path(tempfile.mkdtemp(prefix="public-room-verify-", dir=workspace_var))
@@ -130,7 +131,7 @@ def main() -> None:
             assert ready.status_code == 200
             readiness = ready.json()
             assert readiness["ok"] is True
-            assert readiness["storage"]["integrity"] == "ok"
+            assert readiness["storage"]["schema_version"] == 1
             assert readiness["storage"]["writable"] is True
             assert readiness["storage"]["disk_space_ok"] is True
             assert "free_mib" not in readiness["storage"]
@@ -141,17 +142,17 @@ def main() -> None:
             async def failing_storage_readiness(*, minimum_free_mib):
                 return {
                     "ok": False,
-                    "integrity": "ok",
+                    "schema_version": 1,
                     "writable": False,
                     "disk_space_ok": True,
-                    "error_code": "sqlite_unavailable",
+                    "error_code": "postgres_unavailable",
                 }
 
             app.state.room_service.store.readiness_snapshot = failing_storage_readiness
             not_ready = client.get("/api/v1/health/ready")
             assert not_ready.status_code == 503
             assert not_ready.json()["ok"] is False
-            assert not_ready.json()["storage"]["error_code"] == "sqlite_unavailable"
+            assert not_ready.json()["storage"]["error_code"] == "postgres_unavailable"
             app.state.room_service.store.readiness_snapshot = real_storage_readiness
             app.state.room_service.engine.readiness_snapshot = real_engine_readiness
             app.state.room_service.memory.health_snapshot = real_memory_health
@@ -217,16 +218,14 @@ def main() -> None:
             assert [message["content"] for message in history] == ["NEKO 你好", "你好"]
             assert all("author_id" not in message for message in history)
             assert all("metadata" not in message for message in history)
-            with closing(sqlite3.connect(data_dir / "public-room.db")) as connection:
-                internal_metadata = json.loads(
-                    connection.execute(
-                        """
-                        SELECT metadata_json FROM messages
-                        WHERE author_type = 'neko'
-                        ORDER BY room_seq ASC LIMIT 1
-                        """
-                    ).fetchone()[0]
-                )
+            with connect() as connection:
+                internal_metadata = connection.execute(
+                    """
+                    SELECT metadata_json FROM messages
+                    WHERE author_type = 'neko'
+                    ORDER BY room_seq ASC LIMIT 1
+                    """
+                ).fetchone()["metadata_json"]
             assert internal_metadata["target_visitor_id"].startswith("vis_")
             assert "visitor_scope" in internal_metadata["memory_scope"]
 
@@ -615,16 +614,17 @@ def main() -> None:
                 "messages"
             ]
             assert assistant_id in {message["id"] for message in restored_history}
-            with closing(sqlite3.connect(data_dir / "public-room.db")) as connection:
+            with connect() as connection:
                 moderation_payloads = [
-                    json.loads(row[0])
+                    row["payload_json"]
                     for row in connection.execute(
                         """
                         SELECT payload_json FROM room_events
-                        WHERE type = 'message.moderated' AND payload_json LIKE ?
+                        WHERE type = 'message.moderated'
+                          AND payload_json->>'message_id' = %s
                         ORDER BY room_seq DESC LIMIT 2
                         """,
-                        (f'%"message_id": "{assistant_id}"%',),
+                        (assistant_id,),
                     ).fetchall()
                 ]
             assert moderation_payloads[1]["status"] == "hidden"
@@ -678,8 +678,7 @@ def main() -> None:
             os.utime(expired_audio, (946684800, 946684800))
 
             old_timestamp = "2000-01-01T00:00:00Z"
-            connection = sqlite3.connect(data_dir / "public-room.db")
-            try:
+            with connect() as connection:
                 for table, columns in {
                     "messages": ("created_at",),
                     "room_events": ("created_at",),
@@ -690,11 +689,8 @@ def main() -> None:
                 }.items():
                     for column in columns:
                         connection.execute(
-                            f"UPDATE {table} SET {column} = ?", (old_timestamp,)
+                            f"UPDATE {table} SET {column} = %s", (old_timestamp,)
                         )
-                connection.commit()
-            finally:
-                connection.close()
 
             cleanup = client.post("/api/v1/admin/retention/run", headers=headers)
             assert cleanup.status_code == 200
@@ -713,13 +709,12 @@ def main() -> None:
             assert cleaned_state["totals"]["visitors"] == 0
 
             retry_visitor_id = "vis_retention_retry"
-            connection = sqlite3.connect(data_dir / "public-room.db")
-            try:
+            with connect() as connection:
                 connection.execute(
                     """
                     INSERT INTO visitors(
                         id, display_name, status, created_at, last_seen_at
-                    ) VALUES(?, ?, 'active', ?, ?)
+                    ) VALUES(%s, %s, 'active', %s, %s)
                     """,
                     (
                         retry_visitor_id,
@@ -728,9 +723,6 @@ def main() -> None:
                         old_timestamp,
                     ),
                 )
-                connection.commit()
-            finally:
-                connection.close()
 
             async def failing_forget_visitor(**_kwargs):
                 raise RuntimeError("verification memory outage")
@@ -782,7 +774,7 @@ def main() -> None:
 
         async def verify_controls_after_restart() -> None:
             restarted = PublicRoomService(
-                database_path=data_dir / "public-room.db"
+                database_url=database_url(), data_dir=data_dir
             )
 
             async def fake_character():

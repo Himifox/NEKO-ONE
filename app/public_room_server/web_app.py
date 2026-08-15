@@ -82,7 +82,10 @@ def _data_dir() -> Path:
 
 def create_app() -> FastAPI:
     data_dir = _data_dir()
-    service = PublicRoomService(database_path=data_dir / "public-room.db")
+    database_url = os.environ.get("NEKO_PUBLIC_DATABASE_URL", "").strip()
+    if not database_url:
+        raise RuntimeError("NEKO_PUBLIC_DATABASE_URL is required")
+    service = PublicRoomService(database_url=database_url, data_dir=data_dir)
     sessions = GuestSessionManager(store=service.store, data_dir=data_dir)
     admin_sessions = AdminSessionManager(data_dir)
     avatar = PublicAvatar(data_dir=data_dir)

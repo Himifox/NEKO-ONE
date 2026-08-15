@@ -23,12 +23,17 @@ jobs:
     env:
       NEKO_LANGUAGE: zh
       PYTHONUTF8: "1"
+      NEKO_PUBLIC_DATABASE_URL: postgresql://neko_ci:neko_ci_password@127.0.0.1:5432/neko_ci_test
+      NEKO_VERIFY_ALLOW_DATABASE_RESET: "1"
 
     steps:
       - name: Prepare Debian container
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git nginx nodejs openssl
+          apt-get install -y --no-install-recommends ca-certificates curl git nginx nodejs openssl postgresql postgresql-client
+          pg_ctlcluster 15 main start
+          runuser -u postgres -- psql -v ON_ERROR_STOP=1 -c "CREATE ROLE neko_ci LOGIN PASSWORD 'neko_ci_password'"
+          runuser -u postgres -- createdb --owner=neko_ci neko_ci_test
 
       - name: Check out source
         uses: actions/checkout@v7

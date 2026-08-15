@@ -1,8 +1,8 @@
-"""SQLite persistence for ordered public-room events.
+"""PostgreSQL persistence for ordered public-room events.
 
-The first release has one process-wide writer.  A process-local asyncio lock and
-``BEGIN IMMEDIATE`` make sequence allocation, message insertion, event insertion,
-and request idempotency one transaction.
+The first release has one process-wide writer. A process-local asyncio lock and
+a PostgreSQL row lock make sequence allocation, message insertion, event
+insertion, and request idempotency one transaction.
 """
 
 from __future__ import annotations
@@ -10,30 +10,173 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import psycopg
+from psycopg.rows import dict_row
+
 from .models import RoomMessage, Visitor, utc_now
 
 
+SCHEMA_VERSION = 1
+
+
+SCHEMA_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS visitors (
+        id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS rooms (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'active',
+        last_seq BIGINT NOT NULL DEFAULT 0 CHECK (last_seq >= 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL REFERENCES rooms(id),
+        room_seq BIGINT NOT NULL CHECK (room_seq > 0),
+        author_type TEXT NOT NULL,
+        author_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        reply_to_id TEXT,
+        content TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'visible',
+        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TEXT NOT NULL,
+        UNIQUE(room_id, room_seq)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_messages_room_seq ON messages(room_id, room_seq)",
+    """
+    CREATE TABLE IF NOT EXISTS room_events (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL REFERENCES rooms(id),
+        room_seq BIGINT NOT NULL CHECK (room_seq > 0),
+        type TEXT NOT NULL,
+        payload_json JSONB NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(room_id, room_seq)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_room_events_room_seq ON room_events(room_id, room_seq)",
+    """
+    CREATE TABLE IF NOT EXISTS client_requests (
+        visitor_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        result_json JSONB NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(visitor_id, request_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS turns (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL REFERENCES rooms(id),
+        target_visitor_id TEXT,
+        source_message_ids_json JSONB NOT NULL,
+        reason_code TEXT NOT NULL,
+        decision_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error_code TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id TEXT PRIMARY KEY,
+        actor_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS service_settings (
+        key TEXT PRIMARY KEY,
+        value_json JSONB NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+)
+
+
+def _decode_json(value: Any, default: Any) -> Any:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
+
+
+class _Connection:
+    """Small DB-API compatibility wrapper while the store keeps positional SQL."""
+
+    def __init__(self, connection: psycopg.Connection):
+        self._connection = connection
+
+    def execute(self, query: str, params: Any = None):
+        statement = query.replace("?", "%s")
+        return self._connection.execute(statement, params)
+
+    def commit(self) -> None:
+        self._connection.commit()
+
+    def rollback(self) -> None:
+        self._connection.rollback()
+
+    def close(self) -> None:
+        self._connection.close()
+
+
 class RoomStore:
-    def __init__(self, database_path: Path):
-        self.database_path = Path(database_path)
+    def __init__(self, database_url: str, *, data_dir: Path):
+        normalized = str(database_url or "").strip()
+        if not normalized.startswith(("postgresql://", "postgres://")):
+            raise ValueError("NEKO_PUBLIC_DATABASE_URL must be a PostgreSQL URL")
+        self.database_url = normalized
+        self.data_dir = Path(data_dir)
         self._write_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(self._initialize_sync)
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=10.0)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 10000")
-        return connection
+    def _connect(self, *, timeout_seconds: int = 5) -> _Connection:
+        connection = psycopg.connect(
+            self.database_url,
+            connect_timeout=max(1, int(timeout_seconds)),
+            row_factory=dict_row,
+            application_name="neko-one-public",
+            options=(
+                "-c statement_timeout=10000 "
+                "-c lock_timeout=5000 "
+                "-c idle_in_transaction_session_timeout=10000"
+            ),
+        )
+        return _Connection(connection)
 
     @contextmanager
     def _managed_connection(self):
@@ -49,96 +192,29 @@ class RoomStore:
 
     def _initialize_sync(self) -> None:
         with self._managed_connection() as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS visitors (
-                    id TEXT PRIMARY KEY,
-                    display_name TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'active',
-                    created_at TEXT NOT NULL,
-                    last_seen_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS rooms (
-                    id TEXT PRIMARY KEY,
-                    slug TEXT NOT NULL UNIQUE,
-                    status TEXT NOT NULL DEFAULT 'active',
-                    last_seq INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS messages (
-                    id TEXT PRIMARY KEY,
-                    room_id TEXT NOT NULL,
-                    room_seq INTEGER NOT NULL,
-                    author_type TEXT NOT NULL,
-                    author_id TEXT NOT NULL,
-                    display_name TEXT NOT NULL,
-                    reply_to_id TEXT,
-                    content TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'visible',
-                    metadata_json TEXT NOT NULL DEFAULT '{}',
-                    created_at TEXT NOT NULL,
-                    UNIQUE(room_id, room_seq),
-                    FOREIGN KEY(room_id) REFERENCES rooms(id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_messages_room_seq
-                    ON messages(room_id, room_seq);
-                CREATE TABLE IF NOT EXISTS room_events (
-                    id TEXT PRIMARY KEY,
-                    room_id TEXT NOT NULL,
-                    room_seq INTEGER NOT NULL,
-                    type TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    UNIQUE(room_id, room_seq),
-                    FOREIGN KEY(room_id) REFERENCES rooms(id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_room_events_room_seq
-                    ON room_events(room_id, room_seq);
-                CREATE TABLE IF NOT EXISTS client_requests (
-                    visitor_id TEXT NOT NULL,
-                    request_id TEXT NOT NULL,
-                    result_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    PRIMARY KEY(visitor_id, request_id)
-                );
-                CREATE TABLE IF NOT EXISTS turns (
-                    id TEXT PRIMARY KEY,
-                    room_id TEXT NOT NULL,
-                    target_visitor_id TEXT,
-                    source_message_ids_json TEXT NOT NULL,
-                    reason_code TEXT NOT NULL,
-                    decision_json TEXT NOT NULL DEFAULT '{}',
-                    status TEXT NOT NULL,
-                    started_at TEXT NOT NULL,
-                    completed_at TEXT,
-                    error_code TEXT
-                );
-                CREATE TABLE IF NOT EXISTS audit_log (
-                    id TEXT PRIMARY KEY,
-                    actor_id TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    target_type TEXT NOT NULL,
-                    target_id TEXT NOT NULL,
-                    details_json TEXT NOT NULL DEFAULT '{}',
-                    created_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS service_settings (
-                    key TEXT PRIMARY KEY,
-                    value_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-                """
-            )
+            for statement in SCHEMA_STATEMENTS:
+                connection.execute(statement)
             now = utc_now()
             connection.execute(
                 """
-                INSERT OR IGNORE INTO rooms(id, slug, status, last_seq, created_at, updated_at)
+                INSERT INTO rooms(id, slug, status, last_seq, created_at, updated_at)
                 VALUES('main', 'main', 'active', 0, ?, ?)
+                ON CONFLICT(id) DO NOTHING
                 """,
                 (now, now),
             )
+            connection.execute(
+                """
+                INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)
+                ON CONFLICT(version) DO NOTHING
+                """,
+                (SCHEMA_VERSION, now),
+            )
+            version_row = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations"
+            ).fetchone()
+            if version_row is None or int(version_row["version"]) != SCHEMA_VERSION:
+                raise RuntimeError("unsupported PostgreSQL schema version")
 
     async def readiness_snapshot(self, *, minimum_free_mib: int) -> dict[str, Any]:
         return await asyncio.to_thread(
@@ -148,25 +224,26 @@ class RoomStore:
     def _readiness_snapshot_sync(self, minimum_free_mib: int) -> dict[str, Any]:
         """Prove integrity, a real rollbackable write, and minimum disk headroom."""
 
-        free_bytes = shutil.disk_usage(self.database_path.parent).free
+        free_bytes = shutil.disk_usage(self.data_dir).free
         free_mib = free_bytes // (1024 * 1024)
         result: dict[str, Any] = {
             "ok": False,
-            "integrity": "unknown",
+            "schema_version": None,
             "writable": False,
             "disk_space_ok": free_mib >= minimum_free_mib,
             "error_code": None,
         }
-        connection: sqlite3.Connection | None = None
+        connection: _Connection | None = None
         try:
-            connection = self._connect()
-            connection.execute("PRAGMA busy_timeout = 2000")
-            integrity = str(connection.execute("PRAGMA quick_check(1)").fetchone()[0])
-            result["integrity"] = integrity
-            if integrity.lower() != "ok":
-                result["error_code"] = "integrity"
+            connection = self._connect(timeout_seconds=2)
+            version_row = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations"
+            ).fetchone()
+            version = int(version_row["version"]) if version_row else 0
+            result["schema_version"] = version
+            if version != SCHEMA_VERSION:
+                result["error_code"] = "schema_mismatch"
                 return result
-            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """
                 INSERT INTO service_settings(key, value_json, updated_at)
@@ -182,8 +259,8 @@ class RoomStore:
                 return result
             result["ok"] = True
             return result
-        except sqlite3.Error:
-            result["error_code"] = "sqlite_unavailable"
+        except psycopg.Error:
+            result["error_code"] = "postgres_unavailable"
             return result
         except OSError:
             result["error_code"] = "storage_unavailable"
@@ -192,7 +269,7 @@ class RoomStore:
             if connection is not None:
                 try:
                     connection.rollback()
-                except sqlite3.Error:
+                except psycopg.Error:
                     pass
                 connection.close()
 
@@ -270,7 +347,7 @@ class RoomStore:
             ).fetchone()
             if row is None:
                 return None
-            result = json.loads(row["result_json"])
+            result = _decode_json(row["result_json"], {})
             message = self._message_by_id_on(connection, result["message_id"])
             return message, result["event"]
 
@@ -284,13 +361,13 @@ class RoomStore:
     ) -> tuple[RoomMessage, dict[str, Any], bool]:
         connection = self._connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("BEGIN")
             previous = connection.execute(
                 "SELECT result_json FROM client_requests WHERE visitor_id = ? AND request_id = ?",
                 (visitor.id, request_id),
             ).fetchone()
             if previous is not None:
-                result = json.loads(previous["result_json"])
+                result = _decode_json(previous["result_json"], {})
                 message = self._message_by_id_on(connection, result["message_id"])
                 connection.commit()
                 return message, result["event"], True
@@ -307,7 +384,7 @@ class RoomStore:
             )
             result = {"message_id": message.id, "event": event}
             connection.execute(
-                "INSERT INTO client_requests(visitor_id, request_id, result_json, created_at) VALUES(?, ?, ?, ?)",
+                "INSERT INTO client_requests(visitor_id, request_id, result_json, created_at) VALUES(?, ?, ?::jsonb, ?)",
                 (visitor.id, request_id, json.dumps(result, ensure_ascii=False), utc_now()),
             )
             connection.commit()
@@ -350,7 +427,7 @@ class RoomStore:
     ) -> tuple[RoomMessage, dict[str, Any]]:
         connection = self._connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("BEGIN")
             message, event = self._append_message_on(
                 connection,
                 room_id=room_id,
@@ -371,7 +448,7 @@ class RoomStore:
 
     def _append_message_on(
         self,
-        connection: sqlite3.Connection,
+        connection: _Connection,
         *,
         room_id: str,
         author_type: str,
@@ -399,7 +476,7 @@ class RoomStore:
             INSERT INTO messages(
                 id, room_id, room_seq, author_type, author_id, display_name,
                 reply_to_id, content, status, metadata_json, created_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
             """,
             (
                 message.id,
@@ -437,7 +514,7 @@ class RoomStore:
     ) -> dict[str, Any]:
         connection = self._connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("BEGIN")
             seq = self._next_seq_on(connection, room_id)
             event = self._insert_event_on(
                 connection,
@@ -454,19 +531,22 @@ class RoomStore:
         finally:
             connection.close()
 
-    def _next_seq_on(self, connection: sqlite3.Connection, room_id: str) -> int:
+    def _next_seq_on(self, connection: _Connection, room_id: str) -> int:
+        now = utc_now()
+        connection.execute(
+            """
+            INSERT INTO rooms(id, slug, status, last_seq, created_at, updated_at)
+            VALUES(?, ?, 'active', 0, ?, ?)
+            ON CONFLICT(id) DO NOTHING
+            """,
+            (room_id, room_id, now, now),
+        )
         row = connection.execute(
-            "SELECT last_seq FROM rooms WHERE id = ?", (room_id,)
+            "SELECT last_seq FROM rooms WHERE id = ? FOR UPDATE", (room_id,)
         ).fetchone()
         if row is None:
-            now = utc_now()
-            connection.execute(
-                "INSERT INTO rooms(id, slug, status, last_seq, created_at, updated_at) VALUES(?, ?, 'active', 0, ?, ?)",
-                (room_id, room_id, now, now),
-            )
-            current = 0
-        else:
-            current = int(row["last_seq"])
+            raise RuntimeError("room row disappeared during sequence allocation")
+        current = int(row["last_seq"])
         next_seq = current + 1
         connection.execute(
             "UPDATE rooms SET last_seq = ?, updated_at = ? WHERE id = ?",
@@ -476,7 +556,7 @@ class RoomStore:
 
     def _insert_event_on(
         self,
-        connection: sqlite3.Connection,
+        connection: _Connection,
         *,
         room_id: str,
         room_seq: int,
@@ -491,7 +571,7 @@ class RoomStore:
             "payload": payload,
         }
         connection.execute(
-            "INSERT INTO room_events(id, room_id, room_seq, type, payload_json, created_at) VALUES(?, ?, ?, ?, ?, ?)",
+            "INSERT INTO room_events(id, room_id, room_seq, type, payload_json, created_at) VALUES(?, ?, ?, ?, ?::jsonb, ?)",
             (
                 event["event_id"],
                 room_id,
@@ -504,7 +584,7 @@ class RoomStore:
         return event
 
     def _message_by_id_on(
-        self, connection: sqlite3.Connection, message_id: str
+        self, connection: _Connection, message_id: str
     ) -> RoomMessage:
         row = connection.execute(
             "SELECT * FROM messages WHERE id = ?", (message_id,)
@@ -536,7 +616,7 @@ class RoomStore:
                 "event_id": row["id"],
                 "room_seq": row["room_seq"],
                 "server_time": row["created_at"],
-                "payload": json.loads(row["payload_json"]),
+                "payload": _decode_json(row["payload_json"], {}),
             }
             for row in rows
         ]
@@ -574,9 +654,9 @@ class RoomStore:
                 (room_id,),
             ).fetchone()
             oldest = connection.execute(
-                "SELECT MIN(room_seq) FROM room_events WHERE room_id = ?",
+                "SELECT MIN(room_seq) AS oldest FROM room_events WHERE room_id = ?",
                 (room_id,),
-            ).fetchone()[0]
+            ).fetchone()["oldest"]
         if room is None:
             return {
                 "id": room_id,
@@ -602,15 +682,15 @@ class RoomStore:
         self, room_id: str, limit: int
     ) -> dict[str, Any]:
         with self._managed_connection() as connection:
-            connection.execute("BEGIN")
+            connection.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
             room = connection.execute(
                 "SELECT id, slug, status, last_seq FROM rooms WHERE id = ?",
                 (room_id,),
             ).fetchone()
             oldest = connection.execute(
-                "SELECT MIN(room_seq) FROM room_events WHERE room_id = ?",
+                "SELECT MIN(room_seq) AS oldest FROM room_events WHERE room_id = ?",
                 (room_id,),
-            ).fetchone()[0]
+            ).fetchone()["oldest"]
             rows = connection.execute(
                 """
                 SELECT * FROM messages
@@ -693,7 +773,7 @@ class RoomStore:
     ) -> dict[str, int]:
         connection = self._connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("BEGIN")
             counts = {
                 "client_requests": connection.execute(
                     "DELETE FROM client_requests WHERE created_at < ?",
@@ -755,7 +835,7 @@ class RoomStore:
             connection.close()
 
     @staticmethod
-    def _row_to_message(row: sqlite3.Row) -> RoomMessage:
+    def _row_to_message(row: dict[str, Any]) -> RoomMessage:
         return RoomMessage(
             id=row["id"],
             room_id=row["room_id"],
@@ -766,7 +846,7 @@ class RoomStore:
             reply_to_id=row["reply_to_id"],
             content=row["content"],
             status=row["status"],
-            metadata=json.loads(row["metadata_json"] or "{}"),
+            metadata=_decode_json(row["metadata_json"], {}),
             created_at=row["created_at"],
         )
 
@@ -806,7 +886,7 @@ class RoomStore:
                 INSERT INTO turns(
                     id, room_id, target_visitor_id, source_message_ids_json,
                     reason_code, decision_json, status, started_at
-                ) VALUES(?, ?, ?, ?, ?, ?, 'generating', ?)
+                ) VALUES(?, ?, ?, ?::jsonb, ?, ?::jsonb, 'generating', ?)
                 """,
                 (
                     turn_id,
@@ -856,11 +936,15 @@ class RoomStore:
                 (safe_limit,),
             ).fetchall()
             totals = {
-                "visitors": connection.execute("SELECT COUNT(*) FROM visitors").fetchone()[0],
-                "messages": connection.execute("SELECT COUNT(*) FROM messages").fetchone()[0],
+                "visitors": connection.execute(
+                    "SELECT COUNT(*) AS count FROM visitors"
+                ).fetchone()["count"],
+                "messages": connection.execute(
+                    "SELECT COUNT(*) AS count FROM messages"
+                ).fetchone()["count"],
                 "banned": connection.execute(
-                    "SELECT COUNT(*) FROM visitors WHERE status = 'banned'"
-                ).fetchone()[0],
+                    "SELECT COUNT(*) AS count FROM visitors WHERE status = 'banned'"
+                ).fetchone()["count"],
             }
         return {
             "visitors": [dict(row) for row in visitors],
@@ -870,7 +954,7 @@ class RoomStore:
             "audit": [
                 {
                     **{key: row[key] for key in row.keys() if key != "details_json"},
-                    "details": json.loads(row["details_json"] or "{}"),
+                    "details": _decode_json(row["details_json"], {}),
                 }
                 for row in audits
             ],
@@ -917,7 +1001,7 @@ class RoomStore:
     ) -> dict[str, Any] | None:
         connection = self._connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("BEGIN")
             row = connection.execute(
                 "SELECT * FROM messages WHERE id = ?", (message_id,)
             ).fetchone()
@@ -984,7 +1068,7 @@ class RoomStore:
 
     @staticmethod
     def _insert_audit_on(
-        connection: sqlite3.Connection,
+        connection: _Connection,
         actor_id: str,
         action: str,
         target_type: str,
@@ -994,7 +1078,7 @@ class RoomStore:
         connection.execute(
             """
             INSERT INTO audit_log(id, actor_id, action, target_type, target_id, details_json, created_at)
-            VALUES(?, ?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?::jsonb, ?)
             """,
             (
                 f"audit_{uuid4().hex}", actor_id, action, target_type, target_id,
@@ -1010,7 +1094,7 @@ class RoomStore:
             row = connection.execute(
                 "SELECT value_json FROM service_settings WHERE key = ?", (key,)
             ).fetchone()
-        return default if row is None else json.loads(row["value_json"])
+        return default if row is None else _decode_json(row["value_json"], default)
 
     async def set_setting(
         self, key: str, value: Any, *, actor_id: str = "admin"
@@ -1024,7 +1108,7 @@ class RoomStore:
         with self._managed_connection() as connection:
             connection.execute(
                 """
-                INSERT INTO service_settings(key, value_json, updated_at) VALUES(?, ?, ?)
+                INSERT INTO service_settings(key, value_json, updated_at) VALUES(?, ?::jsonb, ?)
                 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
                 """,
                 (key, json.dumps(value, ensure_ascii=False), utc_now()),

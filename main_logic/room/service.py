@@ -31,12 +31,13 @@ class RoomInputError(ValueError):
 
 
 class PublicRoomService:
-    def __init__(self, *, database_path: Path):
-        self.store = RoomStore(database_path)
+    def __init__(self, *, database_url: str, data_dir: Path):
+        data_root = Path(data_dir)
+        self.store = RoomStore(database_url, data_dir=data_root)
         self.hub = RoomConnectionHub()
         self.engine = ConversationEngine()
         self.memory = MemoryFacade()
-        self.speech = SpeechService(database_path.parent / "speech")
+        self.speech = SpeechService(data_root / "speech")
         self.directors: dict[str, RoomDirector] = {}
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._proactive_tasks: dict[str, asyncio.Task[None]] = {}
@@ -659,8 +660,8 @@ class PublicRoomService:
             if not final_text:
                 raise RuntimeError("model returned an empty response")
             # From this point forward, cancellation is cooperative-only. In
-            # particular, never cancel the SQLite commit thread after it has
-            # started and then mark the same turn as interrupted.
+            # In particular, never cancel the PostgreSQL commit thread after
+            # it has started and then mark the same turn as interrupted.
             async with self._generation_locks[room_id]:
                 generation.phase = "finalizing"
                 await self.hub.broadcast(
