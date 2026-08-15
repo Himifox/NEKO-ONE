@@ -23,7 +23,6 @@ jobs:
     env:
       NEKO_LANGUAGE: zh
       PYTHONUTF8: "1"
-      UV_FROZEN: "1"
 
     steps:
       - name: Prepare Debian container
