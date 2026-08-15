@@ -5,7 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import tempfile
 from pathlib import Path
+from unittest.mock import patch
+
+from main_logic.room.avatar import PublicAvatar
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -141,6 +145,56 @@ def main() -> None:
         "utf-8"
     )
     assert "if (event.persisted) return;" in live2d_script
+
+    (ROOT / "var").mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="avatar-assets-", dir=ROOT / "var") as root:
+        data_dir = Path(root)
+        model_root = data_dir / "live2d" / "neko"
+        (model_root / "textures").mkdir(parents=True)
+        (model_root / "motions").mkdir()
+        (model_root / "expressions").mkdir()
+        (model_root / "model.moc3").write_bytes(b"moc")
+        (model_root / "textures" / "00.png").write_bytes(b"png")
+        (model_root / "motions" / "happy.motion3.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        (model_root / "expressions" / "smile.exp3.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        (model_root / "private-note.txt").write_text("not public", encoding="utf-8")
+        descriptor = {
+            "FileReferences": {
+                "Moc": "model.moc3",
+                "Textures": ["textures/00.png"],
+                "Motions": {
+                    "happy": [{"File": "motions/happy.motion3.json"}]
+                },
+                "Expressions": [
+                    {"Name": "smile", "File": "expressions/smile.exp3.json"}
+                ],
+            }
+        }
+        (model_root / "neko.model3.json").write_text(
+            json.dumps(descriptor), encoding="utf-8"
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "NEKO_PUBLIC_LIVE2D_MODEL_NAME": "neko",
+                "NEKO_PUBLIC_LIVE2D_MODEL_FILE": "neko.model3.json",
+            },
+        ):
+            avatar = PublicAvatar(data_dir=data_dir)
+            assert avatar.manifest()["enabled"] is True
+            allowed = avatar.public_asset_paths()
+        assert allowed == {
+            "neko/neko.model3.json",
+            "neko/model.moc3",
+            "neko/textures/00.png",
+            "neko/motions/happy.motion3.json",
+            "neko/expressions/smile.exp3.json",
+        }
+        assert "neko/private-note.txt" not in allowed
     environment = (ROOT / ".env.public.example").read_text("utf-8")
     assert "NEKO_PUBLIC_LIVE2D_MODEL_NAME=\n" in environment
     assert "NEKO_PUBLIC_LIVE2D_MODEL_FILE=\n" in environment

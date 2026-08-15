@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from main_logic.room.avatar import PublicAvatar
 from main_logic.room.admin_auth import AdminSessionManager
@@ -23,6 +24,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_ROOT = REPO_ROOT / "frontend" / "public-room"
 ADMIN_FRONTEND_ROOT = REPO_ROOT / "frontend" / "public-admin"
 RUNTIME_ROOT = REPO_ROOT / "static" / "libs"
+
+
+class AllowlistedStaticFiles(StaticFiles):
+    def __init__(self, *, directory: Path, allowed_paths: set[str]):
+        super().__init__(directory=directory)
+        self.allowed_paths = frozenset(allowed_paths)
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        normalized = PurePosixPath(path).as_posix()
+        if normalized not in self.allowed_paths:
+            return Response(status_code=404)
+        return await super().get_response(path, scope)
 
 CONTENT_SECURITY_POLICY = "; ".join(
     (
@@ -131,7 +144,10 @@ def create_app() -> FastAPI:
     application.mount("/assets", StaticFiles(directory=FRONTEND_ROOT), name="public-assets")
     application.mount(
         "/live2d-assets",
-        StaticFiles(directory=avatar.assets_root),
+        AllowlistedStaticFiles(
+            directory=avatar.assets_root,
+            allowed_paths=avatar.public_asset_paths(),
+        ),
         name="public-live2d-assets",
     )
     application.mount(

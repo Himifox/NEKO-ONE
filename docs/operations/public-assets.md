@@ -46,7 +46,9 @@ NEKO_PUBLIC_LIVE2D_MODEL_NAME=<model-name>
 NEKO_PUBLIC_LIVE2D_MODEL_FILE=<model-file>.model3.json
 ```
 
-名称和 descriptor 只能是安全文件名。服务端会解析 descriptor，拒绝路径逃逸，并确认 Moc、纹理及声明的 Physics、Pose、UserData、Expression、Motion、Sound 文件都存在；失败时保持文字聊天可用并显示明确占位状态。
+名称和 descriptor 只能是安全文件名。服务端会解析 descriptor，拒绝路径逃逸，并确认 Moc、纹理及声明的 Physics、Pose、UserData、DisplayInfo、Expression、Motion、Sound 文件都存在；失败时保持文字聊天可用并显示明确占位状态。
+
+`/live2d-assets` 只会公开当前启用 descriptor 和它明确引用的文件。同一数据目录中的其他模型、说明、订单或临时文件即使能被猜到路径也会返回 404；但仍不应把授权证明或密钥放进模型目录。更换 descriptor 或资源后必须重启 `neko-public`，让启动时的公开文件 allowlist 重新生成。
 
 ## 上线证据
 
@@ -67,4 +69,4 @@ NEKO_PUBLIC_LIVE2D_MODEL_FILE=<model-file>.model3.json
 uv --cache-dir .uv-cache run --locked python scripts/verify_public_assets.py
 ```
 
-验证会核对第三方清单、文件 SHA-256、MIT 许可证、Cubism Core Redistributable Code 标头、前端加载顺序，并阻止模型、声音或字体文件重新混入公开发行物。
+验证会核对第三方清单、文件 SHA-256、MIT 许可证、Cubism Core Redistributable Code 标头、前端加载顺序与 Live2D descriptor allowlist，并阻止模型、声音或字体文件重新混入公开发行物。

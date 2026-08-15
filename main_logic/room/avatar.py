@@ -81,74 +81,96 @@ class PublicAvatar:
     def model_path(self) -> Path | None:
         if not self.model_name or not self.model_file or self.configuration_error:
             return None
-        return self.assets_root / self.model_name / self.model_file
+        candidate = self.assets_root / self.model_name / self.model_file
+        try:
+            if not candidate.resolve().is_relative_to(self.assets_root):
+                return None
+        except OSError:
+            return None
+        return candidate
 
     def prepare(self) -> None:
         self.assets_root.mkdir(parents=True, exist_ok=True)
 
-    def _reference_exists(self, model_root: Path, value: Any) -> bool:
+    def _reference_path(
+        self, model_root: Path, value: Any
+    ) -> PurePosixPath | None:
         if not isinstance(value, str) or not value or "\\" in value:
-            return False
+            return None
         relative = PurePosixPath(value)
         if relative.is_absolute() or any(part in ("", ".", "..") for part in relative.parts):
-            return False
+            return None
         candidate = model_root.joinpath(*relative.parts).resolve()
-        return candidate.is_relative_to(model_root) and candidate.is_file()
+        if not candidate.is_relative_to(model_root) or not candidate.is_file():
+            return None
+        return relative
 
-    def _model_is_ready(self, model_path: Path) -> bool:
+    def _model_assets(self, model_path: Path) -> set[str] | None:
         try:
             if model_path.stat().st_size > 1024 * 1024:
-                return False
+                return None
             descriptor = json.loads(model_path.read_text(encoding="utf-8"))
             if not isinstance(descriptor, dict):
-                return False
+                return None
             references = descriptor.get("FileReferences")
             if not isinstance(references, dict):
-                return False
+                return None
             model_root = model_path.parent.resolve()
-            if not self._reference_exists(model_root, references.get("Moc")):
-                return False
+            assets = {self.model_file}
+
+            def include(value: Any) -> bool:
+                relative = self._reference_path(model_root, value)
+                if relative is None:
+                    return False
+                assets.add(relative.as_posix())
+                return True
+
+            if not include(references.get("Moc")):
+                return None
             textures = references.get("Textures")
             if (
                 not isinstance(textures, list)
                 or not textures
-                or not all(self._reference_exists(model_root, item) for item in textures)
+                or not all(include(item) for item in textures)
             ):
-                return False
-            for key in ("Physics", "Pose", "UserData"):
-                if key in references and not self._reference_exists(model_root, references[key]):
-                    return False
+                return None
+            for key in ("Physics", "Pose", "UserData", "DisplayInfo"):
+                if key in references and not include(references[key]):
+                    return None
             expressions = references.get("Expressions", [])
             if not isinstance(expressions, list):
-                return False
+                return None
             for expression in expressions:
-                if not isinstance(expression, dict) or not self._reference_exists(
-                    model_root, expression.get("File")
-                ):
-                    return False
+                if not isinstance(expression, dict) or not include(expression.get("File")):
+                    return None
             motions = references.get("Motions", {})
             if not isinstance(motions, dict):
-                return False
+                return None
             for group in motions.values():
                 if not isinstance(group, list):
-                    return False
+                    return None
                 for motion in group:
-                    if not isinstance(motion, dict) or not self._reference_exists(
-                        model_root, motion.get("File")
-                    ):
-                        return False
-                    if "Sound" in motion and not self._reference_exists(
-                        model_root, motion["Sound"]
-                    ):
-                        return False
-            return True
+                    if not isinstance(motion, dict) or not include(motion.get("File")):
+                        return None
+                    if "Sound" in motion and not include(motion["Sound"]):
+                        return None
+            return assets
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            return False
+            return None
+
+    def public_asset_paths(self) -> set[str]:
+        model_path = self.model_path
+        if model_path is None or not model_path.is_file():
+            return set()
+        assets = self._model_assets(model_path)
+        if assets is None:
+            return set()
+        return {f"{self.model_name}/{asset}" for asset in assets}
 
     def manifest(self) -> dict[str, Any]:
         model_path = self.model_path
         model_exists = bool(model_path and model_path.is_file())
-        enabled = bool(model_path and model_exists and self._model_is_ready(model_path))
+        enabled = bool(model_path and model_exists and self._model_assets(model_path))
         if self.configuration_error:
             status = "invalid_configuration"
         elif not self.model_name:

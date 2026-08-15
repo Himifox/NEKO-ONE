@@ -56,6 +56,10 @@ def main() -> None:
     os.environ["NEKO_PUBLIC_ADMIN_PASSWORD"] = "verification-admin-password"
     os.environ["NEKO_PUBLIC_LIVE2D_MODEL_NAME"] = ""
     os.environ["NEKO_PUBLIC_LIVE2D_MODEL_FILE"] = ""
+    (data_dir / "live2d").mkdir(parents=True, exist_ok=True)
+    (data_dir / "live2d" / "private-note.txt").write_text(
+        "must not be public", encoding="utf-8"
+    )
 
     from fastapi.testclient import TestClient
 
@@ -90,6 +94,7 @@ def main() -> None:
             assert avatar.status_code == 200
             assert avatar.json()["enabled"] is False
             assert avatar.json()["status"] == "not_configured"
+            assert client.get("/live2d-assets/private-note.txt").status_code == 404
             real_engine_readiness = app.state.room_service.engine.readiness_snapshot
             real_memory_health = app.state.room_service.memory.health_snapshot
             real_storage_readiness = app.state.room_service.store.readiness_snapshot
