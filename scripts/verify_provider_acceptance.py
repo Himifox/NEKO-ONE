@@ -16,6 +16,8 @@ from provider_acceptance import (
     _parser,
     run_live_acceptance,
 )
+from main_logic.room.speech import SpeechService, SpeechUnavailable
+from main_logic.tts_client import TTS_SHUTDOWN_SENTINEL, dummy_tts_worker
 
 
 class FakeEngine:
@@ -79,11 +81,52 @@ class FailingSpeech(FakeSpeech):
         raise RuntimeError("deliberate fake TTS outage")
 
 
+def rejected_worker(_requests, responses, _api_key, _voice_id):
+    responses.put(("__ready__", False))
+
+
+def ready_worker(requests, responses, _api_key, _voice_id):
+    responses.put(("__ready__", True))
+    while True:
+        item = requests.get()
+        if isinstance(item, tuple) and item[0] == TTS_SHUTDOWN_SENTINEL:
+            return
+
+
+async def verify_speech_worker_lifecycle(temporary: Path) -> None:
+    speech = SpeechService(temporary / "speech-lifecycle")
+    speech._disabled = False
+    speech._resolve_route = lambda: (dummy_tts_worker, "", None, "")
+    assert speech.configured is False
+
+    speech._resolve_route = lambda: (rejected_worker, "", "rejected", "")
+    assert speech.configured is True
+    try:
+        await speech._ensure_started()
+    except SpeechUnavailable:
+        pass
+    else:
+        raise AssertionError("rejected TTS readiness must fail")
+    assert speech._thread is None
+    assert speech._request_queue is None
+    assert speech._response_queue is None
+    assert speech._ready is False
+
+    speech._resolve_route = lambda: (ready_worker, "", "ready", "")
+    await speech._ensure_started()
+    assert speech._ready is True
+    assert speech._thread is not None and speech._thread.is_alive()
+    await speech.shutdown()
+    assert speech._thread is None
+    assert speech._ready is False
+
+
 async def verify() -> None:
     temporary = Path(tempfile.mkdtemp(prefix="provider-acceptance-verify-"))
     memory = FakeMemory()
     speech = FakeSpeech(temporary / "speech")
     try:
+        await verify_speech_worker_lifecycle(temporary)
         report = await run_live_acceptance(
             engine=FakeEngine(), memory=memory, speech=speech
         )

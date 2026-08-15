@@ -134,8 +134,13 @@ def main() -> None:
         "state.rendered.delete(payload.message_id)",
         "event.room_seq !== state.lastSeq + 1",
         'socket.close(1012, "sequence_gap")',
+        'localStorage.setItem("neko.room.soundMuted", "1")',
     ):
         assert token in public_script, f"missing public client lifecycle guard: {token}"
+    live2d_script = (ROOT / "frontend" / "public-room" / "live2d.js").read_text(
+        "utf-8"
+    )
+    assert "if (event.persisted) return;" in live2d_script
     environment = (ROOT / ".env.public.example").read_text("utf-8")
     assert "NEKO_PUBLIC_LIVE2D_MODEL_NAME=\n" in environment
     assert "NEKO_PUBLIC_LIVE2D_MODEL_FILE=\n" in environment

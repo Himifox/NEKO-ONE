@@ -109,10 +109,11 @@
     get ready() { return Boolean(model); },
   };
 
-  window.addEventListener("pagehide", () => {
+  window.addEventListener("pagehide", (event) => {
+    if (event.persisted) return;
     resizeObserver?.disconnect();
     app?.destroy?.(true, { children: true, texture: true, baseTexture: true });
-  }, { once: true });
+  });
 
   initialize();
 })();

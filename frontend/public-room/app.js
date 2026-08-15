@@ -114,12 +114,22 @@
       state.pendingSpeech = null;
       stop();
     }, { once: true });
-    audio.addEventListener("error", stop, { once: true });
+    audio.addEventListener("error", () => {
+      if (state.audio === audio) {
+        state.pendingSpeech = null;
+        queueState.textContent = "语音加载失败，文字回复不受影响";
+      }
+      stop();
+    }, { once: true });
     audio.play().then(() => {
       if (state.audio === audio) state.pendingSpeech = null;
     }).catch(() => {
+      if (state.audio !== audio) return;
+      state.muted = true;
+      localStorage.setItem("neko.room.soundMuted", "1");
+      updateSoundButton();
       globalThis.NekoPublicAvatar?.setSpeaking?.(false);
-      queueState.textContent = "浏览器已阻止自动播放，点击“声音”后重试";
+      queueState.textContent = "浏览器已阻止自动播放，点击“声音：关”后重试";
     });
   }
 

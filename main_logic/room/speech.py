@@ -50,6 +50,7 @@ class SpeechService:
         self._response_queue: Queue | None = None
         self._thread: Thread | None = None
         self._provider_key: str | None = None
+        self._ready = False
         self._start_lock = asyncio.Lock()
         self._synthesis_lock = asyncio.Lock()
         self._disabled = bool(
@@ -58,7 +59,15 @@ class SpeechService:
 
     @property
     def configured(self) -> bool:
-        return not self._disabled
+        if self._disabled:
+            return False
+        if self._ready and self._thread is not None and self._thread.is_alive():
+            return True
+        try:
+            worker, _, provider_key, _ = self._resolve_route()
+        except Exception:
+            return False
+        return worker is not dummy_tts_worker and provider_key is not None
 
     def _resolve_route(self) -> tuple[Any, str, str | None, str]:
         core_config = self._config_manager.get_core_config() or {}
@@ -112,11 +121,13 @@ class SpeechService:
     async def _ensure_started(self) -> None:
         if self._disabled:
             raise SpeechUnavailable("TTS is disabled")
-        if self._thread is not None and self._thread.is_alive():
+        if self._ready and self._thread is not None and self._thread.is_alive():
             return
         async with self._start_lock:
-            if self._thread is not None and self._thread.is_alive():
+            if self._ready and self._thread is not None and self._thread.is_alive():
                 return
+            if self._thread is not None:
+                await self._stop_worker()
             worker, api_key, provider_key, voice_id = await asyncio.to_thread(
                 self._resolve_route
             )
@@ -138,9 +149,24 @@ class SpeechService:
                     asyncio.to_thread(self._response_queue.get), timeout=15.0
                 )
             except TimeoutError as exc:
+                await self._stop_worker()
                 raise SpeechUnavailable("TTS worker readiness timed out") from exc
             if ready != ("__ready__", True):
+                await self._stop_worker()
                 raise SpeechUnavailable("TTS worker failed to initialize")
+            self._ready = True
+
+    async def _stop_worker(self) -> None:
+        request_queue = self._request_queue
+        thread = self._thread
+        self._ready = False
+        if request_queue is not None and thread is not None and thread.is_alive():
+            request_queue.put((TTS_SHUTDOWN_SENTINEL, None))
+            await asyncio.to_thread(thread.join, 3.0)
+        self._thread = None
+        self._request_queue = None
+        self._response_queue = None
+        self._provider_key = None
 
     async def synthesize(self, text: str) -> dict[str, Any]:
         normalized = str(text or "").strip()
@@ -161,6 +187,7 @@ class SpeechService:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     self._request_queue.put(("__interrupt__", None))
+                    await self._stop_worker()
                     raise SpeechUnavailable("TTS synthesis timed out")
                 try:
                     item = await asyncio.wait_for(
@@ -168,6 +195,7 @@ class SpeechService:
                     )
                 except TimeoutError as exc:
                     self._request_queue.put(("__interrupt__", None))
+                    await self._stop_worker()
                     raise SpeechUnavailable("TTS synthesis timed out") from exc
                 if isinstance(item, tuple):
                     if len(item) == 2 and item[0] == "__audio_done__":
@@ -232,9 +260,4 @@ class SpeechService:
         return removed
 
     async def shutdown(self) -> None:
-        if self._request_queue is not None and self._thread is not None:
-            self._request_queue.put((TTS_SHUTDOWN_SENTINEL, None))
-            await asyncio.to_thread(self._thread.join, 3.0)
-        self._thread = None
-        self._request_queue = None
-        self._response_queue = None
+        await self._stop_worker()
