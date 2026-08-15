@@ -51,6 +51,8 @@ def main() -> None:
         "NEKO_PUBLIC_MAX_HTTP_BODY_BYTES=32768",
         "NEKO_PUBLIC_WS_MAX_SIZE_BYTES=16384",
         "NEKO_PUBLIC_WS_MAX_FRAME_CHARS=8192",
+        "NEKO_PUBLIC_LIVE2D_MODEL_NAME=",
+        "NEKO_PUBLIC_LIVE2D_MODEL_FILE=",
     ):
         assert token in environment, f"missing public environment boundary: {token}"
 

@@ -52,6 +52,8 @@ def main() -> None:
     os.environ["NEKO_PUBLIC_DATA_DIR"] = str(data_dir)
     os.environ["NEKO_PUBLIC_ALLOW_LEGACY_MEMORY"] = "0"
     os.environ["NEKO_PUBLIC_ADMIN_PASSWORD"] = "verification-admin-password"
+    os.environ["NEKO_PUBLIC_LIVE2D_MODEL_NAME"] = ""
+    os.environ["NEKO_PUBLIC_LIVE2D_MODEL_FILE"] = ""
 
     from fastapi.testclient import TestClient
 
@@ -82,6 +84,10 @@ def main() -> None:
 
     try:
         with TestClient(app) as client:
+            avatar = client.get("/api/v1/avatar")
+            assert avatar.status_code == 200
+            assert avatar.json()["enabled"] is False
+            assert avatar.json()["status"] == "not_configured"
             real_memory_build_context = app.state.room_service.memory.build_context
             app.state.room_service.engine.generate = fake_generate
             app.state.room_service.memory.build_context = fake_memory_context

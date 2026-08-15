@@ -45,15 +45,33 @@
   }
 
   async function initialize() {
-    if (!canvas || !stage || !globalThis.PIXI?.live2d?.Live2DModel) {
-      showStatus("Live2D 运行库不可用", true);
+    if (!canvas || !stage) {
       return;
     }
     try {
       const response = await fetch("/api/v1/avatar", { credentials: "same-origin" });
       if (!response.ok) throw new Error(`avatar manifest: ${response.status}`);
       const manifest = await response.json();
-      if (!manifest.enabled) throw new Error("avatar is disabled");
+      if (!manifest.enabled) {
+        const invalid = manifest.status === "invalid_configuration";
+        const missing = manifest.status === "missing_model";
+        const invalidModel = manifest.status === "invalid_model";
+        showStatus(
+          invalid
+            ? "Live2D 配置无效"
+            : invalidModel
+              ? "Live2D 模型文件不完整"
+            : missing
+              ? "找不到已配置的 Live2D 模型"
+              : "尚未配置已授权的 Live2D 模型",
+          invalid || missing || invalidModel,
+        );
+        return;
+      }
+      if (!globalThis.PIXI?.live2d?.Live2DModel) {
+        showStatus("Live2D 运行库不可用", true);
+        return;
+      }
 
       app = new PIXI.Application({
         view: canvas,

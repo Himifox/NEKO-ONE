@@ -22,6 +22,7 @@ from main_routers.room_websocket_router import router as websocket_router
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_ROOT = REPO_ROOT / "frontend" / "public-room"
 ADMIN_FRONTEND_ROOT = REPO_ROOT / "frontend" / "public-admin"
+RUNTIME_ROOT = REPO_ROOT / "static" / "libs"
 
 CONTENT_SECURITY_POLICY = "; ".join(
     (
@@ -60,7 +61,7 @@ def create_app() -> FastAPI:
     service = PublicRoomService(database_path=data_dir / "public-room.db")
     sessions = GuestSessionManager(store=service.store, data_dir=data_dir)
     admin_sessions = AdminSessionManager(data_dir)
-    avatar = PublicAvatar(repo_root=REPO_ROOT, data_dir=data_dir)
+    avatar = PublicAvatar(data_dir=data_dir)
     avatar.prepare()
 
     @asynccontextmanager
@@ -138,18 +139,11 @@ def create_app() -> FastAPI:
         StaticFiles(directory=service.speech.audio_root),
         name="public-speech-assets",
     )
-
-    @application.get("/runtime/pixi.min.js", include_in_schema=False)
-    async def pixi_runtime() -> FileResponse:
-        return FileResponse(REPO_ROOT / "static" / "libs" / "pixi.min.js")
-
-    @application.get("/runtime/live2dcubismcore.min.js", include_in_schema=False)
-    async def cubism_runtime() -> FileResponse:
-        return FileResponse(REPO_ROOT / "static" / "libs" / "live2dcubismcore.min.js")
-
-    @application.get("/runtime/live2d.min.js", include_in_schema=False)
-    async def live2d_runtime() -> FileResponse:
-        return FileResponse(REPO_ROOT / "static" / "libs" / "live2d.min.js")
+    application.mount(
+        "/runtime",
+        StaticFiles(directory=RUNTIME_ROOT),
+        name="audited-browser-runtime",
+    )
 
     @application.get("/", include_in_schema=False)
     async def public_room_page() -> FileResponse:

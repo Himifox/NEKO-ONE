@@ -11,5 +11,6 @@
 - [长期记忆架构](../architecture/memory-system.md)：Recent → Facts → Reflections → Persona 的证据链与召回流程。
 - [容量与稳定性验证](../operations/capacity-and-soak.md)：10/25/50 人负载、慢连接隔离和 24 小时 soak 的执行门槛。
 - [备份与恢复](../operations/backup-and-restore.md)：一致性快照、清单、隔离恢复和异机演练的操作约束。
+- [公网资产授权](../operations/public-assets.md)：模型、声音、字体和浏览器运行库的分发边界。
 
 代码、部署配置和验证脚本是最终实现依据。架构发生变化时，应同步更新上述文档。

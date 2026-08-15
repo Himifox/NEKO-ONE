@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
-import tarfile
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 
@@ -26,6 +28,7 @@ EMOTION_ALIASES = {
     "relaxed": "neutral",
 }
 EMOTION_TAG = re.compile(r"<\s*([^<>]{1,24})\s*>", re.IGNORECASE)
+MODEL_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 def split_emotion_tags(text: str) -> tuple[str, str]:
@@ -46,59 +49,124 @@ def split_emotion_tags(text: str) -> tuple[str, str]:
 
 
 class PublicAvatar:
-    """Extract and describe one bundled Live2D model for the public page.
+    """Describe one operator-installed, explicitly licensed Live2D model.
 
     Public-room v1 deliberately does not expose the legacy model browser,
-    Workshop or arbitrary filesystem paths. An operator may choose another
-    bundled archive with environment variables, but clients only receive a
-    same-origin model URL.
+    Workshop or arbitrary filesystem paths. The public repository does not
+    bundle a character model whose redistribution rights cannot be proven.
     """
 
-    def __init__(self, *, repo_root: Path, data_dir: Path):
-        self.repo_root = repo_root.resolve()
+    def __init__(self, *, data_dir: Path):
         self.assets_root = (data_dir / "live2d").resolve()
         self.assets_root.mkdir(parents=True, exist_ok=True)
-        self.model_name = "yui-lolita"
-        self.model_file = "yui-lolita.model3.json"
-        self.archive = self.repo_root / "assets" / "yui-lolita.tar.gz"
+        self.model_name = os.environ.get("NEKO_PUBLIC_LIVE2D_MODEL_NAME", "").strip()
+        self.model_file = os.environ.get("NEKO_PUBLIC_LIVE2D_MODEL_FILE", "").strip()
+        self.configuration_error = self._configuration_error()
+
+    def _configuration_error(self) -> str | None:
+        if not self.model_name and not self.model_file:
+            return None
+        if not self.model_name or not self.model_file:
+            return "incomplete"
+        if MODEL_COMPONENT.fullmatch(self.model_name) is None:
+            return "invalid"
+        if (
+            MODEL_COMPONENT.fullmatch(self.model_file) is None
+            or not self.model_file.endswith(".model3.json")
+        ):
+            return "invalid"
+        return None
 
     @property
-    def model_path(self) -> Path:
+    def model_path(self) -> Path | None:
+        if not self.model_name or not self.model_file or self.configuration_error:
+            return None
         return self.assets_root / self.model_name / self.model_file
 
     def prepare(self) -> None:
-        if self.model_path.is_file():
-            return
-        if not self.archive.is_file():
-            raise FileNotFoundError(f"bundled Live2D archive is missing: {self.archive}")
-        with tarfile.open(self.archive, "r:gz") as bundle:
-            for member in bundle.getmembers():
-                if member.issym() or member.islnk() or member.isdev():
-                    raise ValueError("Live2D archive contains an unsupported link or device")
-                target = (self.assets_root / member.name).resolve()
-                try:
-                    target.relative_to(self.assets_root)
-                except ValueError as exc:
-                    raise ValueError("Live2D archive contains an unsafe path") from exc
-                if member.isdir():
-                    target.mkdir(parents=True, exist_ok=True)
-                    continue
-                if not member.isfile():
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                source = bundle.extractfile(member)
-                if source is None:
-                    raise ValueError(f"cannot read Live2D archive member: {member.name}")
-                with source, target.open("wb") as destination:
-                    while chunk := source.read(1024 * 1024):
-                        destination.write(chunk)
-        if not self.model_path.is_file():
-            raise FileNotFoundError("bundled Live2D model descriptor was not extracted")
+        self.assets_root.mkdir(parents=True, exist_ok=True)
+
+    def _reference_exists(self, model_root: Path, value: Any) -> bool:
+        if not isinstance(value, str) or not value or "\\" in value:
+            return False
+        relative = PurePosixPath(value)
+        if relative.is_absolute() or any(part in ("", ".", "..") for part in relative.parts):
+            return False
+        candidate = model_root.joinpath(*relative.parts).resolve()
+        return candidate.is_relative_to(model_root) and candidate.is_file()
+
+    def _model_is_ready(self, model_path: Path) -> bool:
+        try:
+            if model_path.stat().st_size > 1024 * 1024:
+                return False
+            descriptor = json.loads(model_path.read_text(encoding="utf-8"))
+            if not isinstance(descriptor, dict):
+                return False
+            references = descriptor.get("FileReferences")
+            if not isinstance(references, dict):
+                return False
+            model_root = model_path.parent.resolve()
+            if not self._reference_exists(model_root, references.get("Moc")):
+                return False
+            textures = references.get("Textures")
+            if (
+                not isinstance(textures, list)
+                or not textures
+                or not all(self._reference_exists(model_root, item) for item in textures)
+            ):
+                return False
+            for key in ("Physics", "Pose", "UserData"):
+                if key in references and not self._reference_exists(model_root, references[key]):
+                    return False
+            expressions = references.get("Expressions", [])
+            if not isinstance(expressions, list):
+                return False
+            for expression in expressions:
+                if not isinstance(expression, dict) or not self._reference_exists(
+                    model_root, expression.get("File")
+                ):
+                    return False
+            motions = references.get("Motions", {})
+            if not isinstance(motions, dict):
+                return False
+            for group in motions.values():
+                if not isinstance(group, list):
+                    return False
+                for motion in group:
+                    if not isinstance(motion, dict) or not self._reference_exists(
+                        model_root, motion.get("File")
+                    ):
+                        return False
+                    if "Sound" in motion and not self._reference_exists(
+                        model_root, motion["Sound"]
+                    ):
+                        return False
+            return True
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return False
 
     def manifest(self) -> dict[str, Any]:
+        model_path = self.model_path
+        model_exists = bool(model_path and model_path.is_file())
+        enabled = bool(model_path and model_exists and self._model_is_ready(model_path))
+        if self.configuration_error:
+            status = "invalid_configuration"
+        elif not self.model_name:
+            status = "not_configured"
+        elif not model_exists:
+            status = "missing_model"
+        elif not enabled:
+            status = "invalid_model"
+        else:
+            status = "ready"
         return {
-            "enabled": self.model_path.is_file(),
-            "model_name": self.model_name,
-            "model_url": f"/live2d-assets/{self.model_name}/{self.model_file}",
+            "enabled": enabled,
+            "status": status,
+            "model_name": self.model_name or None,
+            "model_url": (
+                f"/live2d-assets/{self.model_name}/{self.model_file}"
+                if enabled
+                else None
+            ),
             "emotions": ["neutral", "happy", "sad", "angry", "surprised"],
         }

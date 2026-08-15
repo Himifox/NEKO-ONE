@@ -4,8 +4,20 @@ Copyright (c) 2025 Hongzhi Wen
 
 This product is developed and maintained by the Project N.E.K.O. Team.
 
-Licensed under the Apache License, Version 2.0.
-See the LICENSE file for the full license text.
+Project-authored source is licensed under the Apache License, Version 2.0.
+See LICENSE for the full text. Third-party components retain their own terms:
+
+- PixiJS 7.4.3, Copyright (c) 2013-2023 Mathew Groves, Chad Engler.
+  MIT License; see static/libs/licenses/pixi.js-MIT.txt.
+- pixi-live2d-display 0.5.0-beta, Copyright (c) 2020 Guan.
+  MIT License; see static/libs/licenses/pixi-live2d-display-MIT.txt.
+- Live2D Cubism Core, Copyright (c) 2019 Live2D Inc.
+  Proprietary Redistributable Code under the agreement linked in the file
+  header: https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html
+
+The repository does not distribute a character model, font file, default
+voice, or cloned voice. Operators are responsible for the publication rights
+of models and voices they install.
 
 ------------------------------------------------------------
 

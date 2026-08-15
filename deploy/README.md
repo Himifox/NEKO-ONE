@@ -10,6 +10,9 @@ proxy. Only Nginx listens on the public network.
    domain, then set owner `root:neko` and mode `0640`.
 3. Keep the existing private model/TTS configuration under the service user's
    application data directory. Do not copy keys into the web root.
+   Install only a model with proven Web publication rights under
+   `/var/lib/neko-public/live2d/<name>/`, then set both `NEKO_PUBLIC_LIVE2D_*`
+   values. No character model or default voice ships in this repository.
 4. Install the two systemd units, run `systemctl daemon-reload`, then enable and
    start `neko-memory` and `neko-public`.
 5. Install the Nginx configuration inside the `http` context (for example under
@@ -44,9 +47,10 @@ uv --cache-dir .uv-cache run --active --no-sync python scripts/check_public_boun
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_deployment_security.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_room_capacity.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_backup_restore.py
+uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_public_assets.py
 ```
 
-The last script validates the example files, not the installed Nginx binary.
+The deployment-security script validates the example files, not the installed Nginx binary.
 Production acceptance still requires `nginx -t`, an external port scan and
 HTTP/WSS checks from outside the VPS.
 

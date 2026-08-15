@@ -52,7 +52,6 @@ neko-memory = "app.memory_server.__main__:main"
 packages = ["app", "config", "main_logic", "main_routers", "memory", "utils"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"assets" = "assets"
 "deploy" = "deploy"
 "docs" = "docs"
 "frontend" = "frontend"
@@ -63,7 +62,7 @@ packages = ["app", "config", "main_logic", "main_routers", "memory", "utils"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "app", "assets", "config", "deploy", "docs",
+  "app", "config", "deploy", "docs",
   "frontend/public-admin", "frontend/public-room", "main_logic", "main_routers",
   "memory", "scripts",
   "static/libs", "utils", ".env.public.example", "requirements-public.txt",

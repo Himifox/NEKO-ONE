@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "path": "pixi.min.js",
+      "name": "PixiJS",
+      "version": "7.4.3",
+      "sha256": "712a3e1943b062a907d86c5bb56b67c7b32a3f03b3654768b00b7016d30a24c6",
+      "license": "MIT",
+      "license_path": "licenses/pixi.js-MIT.txt",
+      "source": "https://registry.npmjs.org/pixi.js/-/pixi.js-7.4.3.tgz",
+      "modifications": "none"
+    },
+    {
+      "path": "pixi-live2d-display-cubism4.min.js",
+      "name": "pixi-live2d-display Cubism 4 bundle",
+      "version": "0.5.0-beta",
+      "sha256": "f1abe05b2dfd65f58469779c393a461af6c329130bcfcff95b4e8ca304f02d82",
+      "license": "MIT",
+      "license_path": "licenses/pixi-live2d-display-MIT.txt",
+      "source": "https://registry.npmjs.org/pixi-live2d-display/-/pixi-live2d-display-0.5.0-beta.tgz",
+      "modifications": "replaced the single process.env.NODE_ENV expression with a production literal for direct browser use"
+    },
+    {
+      "path": "live2dcubismcore.min.js",
+      "name": "Live2D Cubism Core for Web",
+      "version": "bundled upstream build; exact release not proven",
+      "sha256": "25ae938cb4fe282ce189b357bcc97e603d1e1f7ec78bf04150d401c23cdc792f",
+      "license": "LicenseRef-Live2D-Proprietary-Software-License-Agreement",
+      "license_url": "https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html",
+      "source": "legacy project import; file header identifies it as Redistributable Code",
+      "modifications": "none"
+    }
+  ]
+}

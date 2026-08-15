@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -15,6 +16,8 @@ if str(ROOT) not in sys.path:
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="neko-boundary-") as temporary:
         os.environ["NEKO_PUBLIC_DATA_DIR"] = temporary
+        os.environ["NEKO_PUBLIC_LIVE2D_MODEL_NAME"] = ""
+        os.environ["NEKO_PUBLIC_LIVE2D_MODEL_FILE"] = ""
         from app.public_room_server.web_app import create_app
 
         app = create_app()
@@ -42,6 +45,9 @@ def main() -> None:
         frontend = (ROOT / "frontend" / "public-room" / "app.js").read_text("utf-8")
         for secret_name in ("api_key", "API_KEY", "MEMORY_SERVER", "system_prompt"):
             assert secret_name not in frontend, f"frontend exposes forbidden token: {secret_name}"
+        page_html = (ROOT / "frontend" / "public-room" / "index.html").read_text("utf-8")
+        assert "pixi-live2d-display-cubism4.min.js" in page_html
+        assert "runtime/live2d.min.js" not in page_html
 
         from fastapi.testclient import TestClient
 
@@ -57,6 +63,17 @@ def main() -> None:
             assert page.headers["x-frame-options"] == "DENY"
             assert page.headers["cross-origin-resource-policy"] == "same-origin"
             assert client.get("/admin").headers["cache-control"] == "no-store"
+            display_runtime = client.get(
+                "/runtime/pixi-live2d-display-cubism4.min.js"
+            )
+            assert display_runtime.status_code == 200
+            assert "Copyright (c) 2020 Guan" in display_runtime.text[:300]
+            assert client.get("/runtime/live2d.min.js").status_code == 404
+            display_license = client.get(
+                "/runtime/licenses/pixi-live2d-display-MIT.txt"
+            )
+            assert display_license.status_code == 200
+            assert "Permission is hereby granted" in display_license.text
             oversized = client.post(
                 "/api/v1/session/guest",
                 content=b"x" * 32769,
@@ -68,6 +85,35 @@ def main() -> None:
             cookie = session.headers["set-cookie"].lower()
             assert "secure" in cookie and "httponly" in cookie
             assert "samesite=lax" in cookie
+
+        from main_logic.room.avatar import PublicAvatar
+
+        configured_data = Path(temporary) / "configured"
+        model_root = configured_data / "live2d" / "licensed-model"
+        model_root.mkdir(parents=True)
+        (model_root / "licensed.moc3").write_bytes(b"MOC3 verification")
+        (model_root / "texture.png").write_bytes(b"PNG verification")
+        descriptor = {
+            "Version": 3,
+            "FileReferences": {
+                "Moc": "licensed.moc3",
+                "Textures": ["texture.png"],
+            },
+        }
+        (model_root / "licensed.model3.json").write_text(
+            json.dumps(descriptor), encoding="utf-8"
+        )
+        os.environ["NEKO_PUBLIC_LIVE2D_MODEL_NAME"] = "licensed-model"
+        os.environ["NEKO_PUBLIC_LIVE2D_MODEL_FILE"] = "licensed.model3.json"
+        avatar = PublicAvatar(data_dir=configured_data)
+        ready = avatar.manifest()
+        assert ready["enabled"] is True and ready["status"] == "ready"
+        descriptor["FileReferences"]["Moc"] = "../session.secret"
+        (model_root / "licensed.model3.json").write_text(
+            json.dumps(descriptor), encoding="utf-8"
+        )
+        invalid = avatar.manifest()
+        assert invalid["enabled"] is False and invalid["status"] == "invalid_model"
     print("public boundary verification passed")
 
 
