@@ -2,6 +2,7 @@
 
 - [Debian 自动验证](../../.github/workflows/verify-public-runtime.yml)：在 Debian 12 容器中执行真实 `nginx -t`，并运行公共房间、Memory、本地备份恢复、安全边界、资产与构建检查；不会调用付费供应商。
 - [容量与稳定性验证](./capacity-and-soak.md)：10/25/50 人短时基线、30 分钟容量档位和 24 小时 soak 的执行及验收规则。
+- [PostgreSQL 容量验收](../../.github/workflows/verify-postgres-capacity.yml)：仅手动触发的 Debian 12 真实数据库 10/25/50 人各 30 分钟运行。
 - [备份与恢复](./backup-and-restore.md)：PostgreSQL dump/restore、Memory SQLite 快照、清单校验、加密交接和异机演练。
 - [公网资产授权](./public-assets.md)：第三方运行库清单、运营方 Live2D/TTS 授权证据和自动防回归。
 - [真实供应商验收](./provider-acceptance.md)：无费用预检、显式费用闸门、隔离 Memory 清理和真实 LLM/TTS 证据。

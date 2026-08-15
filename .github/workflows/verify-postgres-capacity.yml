@@ -1,0 +1,69 @@
+name: Verify PostgreSQL capacity acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-capacity-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  capacity-acceptance:
+    name: Debian 12 PostgreSQL 10/25/50 x 30 minutes
+    runs-on: ubuntu-latest
+    container:
+      image: debian:12-slim
+    timeout-minutes: 120
+    env:
+      NEKO_LANGUAGE: zh
+      PYTHONUTF8: "1"
+      NEKO_PUBLIC_DATABASE_URL: postgresql://neko_capacity:neko_capacity_password@127.0.0.1:5432/neko_capacity_verify
+      NEKO_VERIFY_ALLOW_DATABASE_RESET: "1"
+
+    steps:
+      - name: Prepare Debian and PostgreSQL
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git postgresql postgresql-client
+          pg_ctlcluster 15 main start
+          runuser -u postgres -- psql -v ON_ERROR_STOP=1 -c "CREATE ROLE neko_capacity LOGIN PASSWORD 'neko_capacity_password'"
+          runuser -u postgres -- createdb --owner=neko_capacity neko_capacity_verify
+
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.32"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync locked dependencies
+        run: uv sync --locked --no-dev
+
+      - name: Run final PostgreSQL capacity profiles
+        run: |
+          mkdir -p var/evidence
+          uv run --locked python scripts/verify_room_capacity.py \
+            --profiles 10,25,50 \
+            --duration-seconds 1800 \
+            --messages-per-second 1 \
+            --model-delay-ms 2 \
+            --progress-seconds 30 \
+            --output var/evidence/postgresql-capacity-30m.json
+
+      - name: Upload capacity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-capacity-30m-${{ github.run_id }}
+          path: var/evidence/postgresql-capacity-30m.json
+          if-no-files-found: warn
+          retention-days: 30

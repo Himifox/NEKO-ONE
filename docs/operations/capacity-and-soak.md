@@ -48,6 +48,11 @@ uv --cache-dir .uv-cache run --locked python scripts/verify_room_capacity.py
 
 以下命令会依次运行 10、25、50 人三个 profile，每个 profile 30 分钟，总时长约 90 分钟。运行前必须设置专用 PostgreSQL 验证库和重置闸门。全房间目标速率为 1 条/秒，访客按轮询均匀发言：
 
+仓库还提供只允许手动触发的
+[`Verify PostgreSQL capacity acceptance`](../../.github/workflows/verify-postgres-capacity.yml)
+工作流。它在一次 Debian 12 + PostgreSQL 15 作业中连续执行三个档位，并上传
+包含全部采样点的 30 天保留证据；普通 push/PR 不会启动这项约 90 分钟的验收。
+
 ```powershell
 $env:NEKO_PUBLIC_DATABASE_URL = "postgresql://neko_verify:...@127.0.0.1:5432/neko_capacity_verify"
 $env:NEKO_VERIFY_ALLOW_DATABASE_RESET = "1"
