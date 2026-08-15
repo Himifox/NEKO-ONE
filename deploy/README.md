@@ -42,8 +42,14 @@ Before deployment, run:
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_public_room.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/check_public_boundary.py
 uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_deployment_security.py
+uv --cache-dir .uv-cache run --active --no-sync python scripts/verify_room_capacity.py
 ```
 
 The last script validates the example files, not the installed Nginx binary.
 Production acceptance still requires `nginx -t`, an external port scan and
 HTTP/WSS checks from outside the VPS.
+
+The capacity command above is the short deterministic baseline. Run the 30
+minute profiles and 24 hour soak from
+[`docs/operations/capacity-and-soak.md`](../docs/operations/capacity-and-soak.md)
+before public acceptance.
