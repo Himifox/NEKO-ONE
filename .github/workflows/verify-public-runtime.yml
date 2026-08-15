@@ -66,6 +66,9 @@ jobs:
       - name: Verify public room behavior
         run: uv run --locked python scripts/verify_public_room.py
 
+      - name: Verify SQLite to PostgreSQL migration
+        run: uv run --locked python scripts/verify_postgres_migration.py
+
       - name: Verify Memory startup and local persistence
         run: uv run --locked python scripts/verify_memory_runtime.py
 
