@@ -22,7 +22,7 @@ Manages config file storage locations and migration. Formerly the monolithic
   validate, migrate, flatten)
 - ``persona_payload``: persona synthesis + YUI/live2d legacy helpers
 - ``storage_roots`` / ``migrations`` / ``characters`` / ``voice_storage`` /
-  ``core_config`` / ``quota`` / ``workshop``: one mixin each, assembled into
+  ``core_config`` / ``quota``: focused mixins assembled into
   the single ``ConfigManager`` class below.
 
 The import path ``utils.config_manager`` and every top-level symbol are
@@ -254,13 +254,6 @@ def get_config_path(filename):
 def get_runtime_config_path(filename):
     """Get the runtime source-of-truth config path."""
     return get_config_manager().get_runtime_config_path(filename)
-
-
-def get_plugins_directory(app_name=None):
-    """Get the user plugin root directory, defaulting to ``plugins`` under the app documents directory."""
-    manager = ConfigManager(app_name)
-    manager.ensure_plugins_directory()
-    return manager.plugins_dir
 
 
 def load_json_config(filename, default_value=None):

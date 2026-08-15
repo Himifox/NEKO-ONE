@@ -158,25 +158,9 @@ class StorageRootsMixin:
         self.docs_dir = self.app_docs_dir.parent
         self.config_dir = self.app_docs_dir / "config"
         self.memory_dir = self.app_docs_dir / "memory"
-        self.plugins_dir = self.app_docs_dir / "plugins"
         self.live2d_dir = self.app_docs_dir / "live2d"
-        # VRM模型存储在用户文档目录下（与Live2D保持一致）
-        self.vrm_dir = self.app_docs_dir / "vrm"
-        self.vrm_animation_dir = self.vrm_dir / "animation"  # VRMA动画文件目录
-        # MMD模型存储在用户文档目录下
-        self.mmd_dir = self.app_docs_dir / "mmd"
-        self.mmd_animation_dir = self.mmd_dir / "animation"  # VMD动画文件目录
-        self.pngtuber_dir = self.app_docs_dir / "pngtuber"
-        self.workshop_dir = self.app_docs_dir / "workshop"
-        self._steam_workshop_path = None
-        self._user_workshop_folder_persisted = False
         self.chara_dir = self.app_docs_dir / "character_cards"
         self.card_faces_dir = self.app_docs_dir / "card_faces"
-        # RLock 而不是 Lock：workshop 配置的「整段事务」（读→合并→写→建目录，见
-        # main_routers/workshop_router/config_files.py）要持着它再调 load_workshop_config，
-        # 而 load 自己在某些分支也拿这把锁 —— 不可重入就是自死锁。可重入只放宽同线程
-        # 再取，跨线程仍然严格串行，对既有用法没有任何削弱。
-        self._workshop_config_lock = threading.RLock()
 
         self._characters_cache: dict | None = None
         self._characters_cache_mtime: float | None = None
@@ -606,18 +590,6 @@ class StorageRootsMixin:
             print(f"Warning: Failed to create memory directory: {e}", file=sys.stderr)
             return False
 
-    def ensure_plugins_directory(self):
-        """Ensure the plugins directory under Documents exists"""
-        try:
-            if not self._ensure_app_docs_directory():
-                return False
-
-            self.plugins_dir.mkdir(exist_ok=True)
-            return True
-        except Exception as e:
-            print(f"Warning: Failed to create plugins directory: {e}", file=sys.stderr)
-            return False
-    
     def ensure_live2d_directory(self):
         """Ensure the live2d directory under Documents exists"""
         try:
@@ -682,44 +654,6 @@ class StorageRootsMixin:
             roots.append(Path(candidate))
         return roots
 
-    def ensure_vrm_directory(self):
-        """Ensure the vrm directory and its animation subdirectory exist under the user documents directory"""
-        try:
-            # 先确保app_docs_dir存在
-            if not self._ensure_app_docs_directory():
-                return False
-            # 创建vrm目录
-            self.vrm_dir.mkdir(parents=True, exist_ok=True)
-            # 创建animation子目录
-            self.vrm_animation_dir.mkdir(parents=True, exist_ok=True)
-            return True
-        except Exception as e:
-            print(f"Warning: Failed to create vrm directory: {e}", file=sys.stderr)
-            return False
-    
-    def ensure_mmd_directory(self):
-        """Ensure the mmd directory and its animation subdirectory exist under the user documents directory"""
-        try:
-            if not self._ensure_app_docs_directory():
-                return False
-            self.mmd_dir.mkdir(parents=True, exist_ok=True)
-            self.mmd_animation_dir.mkdir(parents=True, exist_ok=True)
-            return True
-        except Exception as e:
-            print(f"Warning: Failed to create mmd directory: {e}", file=sys.stderr)
-            return False
-
-    def ensure_pngtuber_directory(self):
-        """Ensure the user PNGTuber asset directory exists."""
-        try:
-            if not self._ensure_app_docs_directory():
-                return False
-            self.pngtuber_dir.mkdir(parents=True, exist_ok=True)
-            return True
-        except Exception as e:
-            print(f"Warning: Failed to create pngtuber directory: {e}", file=sys.stderr)
-            return False
-        
     def ensure_chara_directory(self):
         """Ensure the character_cards directory under Documents exists"""
         try:
@@ -1052,11 +986,9 @@ class StorageRootsMixin:
             "app_dir": str(self.app_docs_dir),
             "config_dir": str(self.config_dir),
             "memory_dir": str(self.memory_dir),
-            "plugins_dir": str(self.plugins_dir),
             "live2d_dir": str(self.live2d_dir),
             "readable_live2d_dir": str(self.readable_live2d_dir) if self.readable_live2d_dir else "",
             "windows_cfa_fallback_active": self.is_windows_cfa_fallback_active,
-            "workshop_dir": str(self.workshop_dir),
             "chara_dir": str(self.chara_dir),
             "local_state_dir": str(self.local_state_dir),
             "character_tombstones_state_path": str(self.character_tombstones_state_path),

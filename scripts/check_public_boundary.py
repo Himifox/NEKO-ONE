@@ -65,6 +65,36 @@ def main() -> None:
     assert not ({"vrm", "mmd", "pngtuber"} & set(avatar_defaults)), (
         "alternate renderer defaults returned"
     )
+    from config import RESERVED_FIELD_SCHEMA
+    from utils.config_manager.reserved_schema import (
+        flatten_reserved,
+        migrate_catgirl_reserved,
+    )
+
+    avatar_schema = RESERVED_FIELD_SCHEMA["avatar"]
+    assert not ({"vrm", "mmd", "pngtuber", "live3d_sub_type"} & set(avatar_schema)), (
+        "alternate renderer schema returned"
+    )
+    legacy_character = {
+        "model_type": "vrm",
+        "vrm": "retired.vrm",
+        "mmd": "retired.pmx",
+        "pngtuber": {"idle_image": "retired.png"},
+        "_reserved": {
+            "avatar": {
+                "model_type": "live3d",
+                "vrm": {"model_path": "retired.vrm"},
+                "mmd": {"model_path": "retired.pmx"},
+                "pngtuber": {"idle_image": "retired.png"},
+            }
+        },
+    }
+    assert migrate_catgirl_reserved(legacy_character) is True
+    migrated_avatar = legacy_character["_reserved"]["avatar"]
+    assert migrated_avatar["model_type"] == "live2d"
+    assert not ({"vrm", "mmd", "pngtuber", "live3d_sub_type"} & set(migrated_avatar))
+    flattened = flatten_reserved(legacy_character)
+    assert not ({"vrm", "mmd", "pngtuber", "live3d_sub_type"} & set(flattened))
     memory_runtime = (ROOT / "app" / "memory_server" / "runtime.py").read_text("utf-8")
     assert "/internal/storage/" not in memory_runtime, "legacy storage control route returned"
     reporting = (ROOT / "utils" / "token_tracker" / "reporting.py").read_text("utf-8")

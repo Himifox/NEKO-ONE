@@ -53,7 +53,6 @@ DEFAULT_LANLAN_TEMPLATE = {
             "avatar": {
                 "model_type": "live2d",
                 "asset_source": "local",
-                "asset_source_id": "",
                 "live2d": {
                     "model_path": "",
                 },

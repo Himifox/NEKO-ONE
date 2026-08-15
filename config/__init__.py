@@ -29,7 +29,6 @@ from .application import (  # noqa: F401
 
 from .character_fields import (  # noqa: F401
     CHARACTER_SYSTEM_RESERVED_FIELDS,
-    CHARACTER_WORKSHOP_RESERVED_FIELDS,
     CHARACTER_RESERVED_FIELDS,
     get_character_reserved_fields,
     RESERVED_FIELD_SCHEMA,
@@ -435,7 +434,6 @@ __all__ = [
     'APP_VERSION',
     'GSV_VOICE_PREFIX',
     'CHARACTER_SYSTEM_RESERVED_FIELDS',
-    'CHARACTER_WORKSHOP_RESERVED_FIELDS',
     'CHARACTER_RESERVED_FIELDS',
     'RESERVED_FIELD_SCHEMA',
     'LEGACY_FLAT_TO_RESERVED',
