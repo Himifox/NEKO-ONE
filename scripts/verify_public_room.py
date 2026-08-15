@@ -85,7 +85,7 @@ def main() -> None:
             "url": "/speech-assets/speech-smoke.wav",
             "content_type": "audio/wav",
             "sample_rate": 48000,
-            "provider": "fake",
+            "provider": "verification-private-provider",
         }
 
     try:
@@ -174,6 +174,24 @@ def main() -> None:
                     assert "chat.accepted" not in types2
                     assert types1.count("stream.delta") == 2
                     assert types2.count("stream.delta") == 2
+                    public_events = [
+                        event
+                        for event in events1
+                        if event.get("type")
+                        in {"message.created", "turn.started", "stream.started"}
+                    ]
+                    serialized_public_events = json.dumps(
+                        public_events, ensure_ascii=False
+                    )
+                    for private_token in (
+                        "author_id",
+                        "metadata",
+                        "target_visitor_id",
+                        "source_message_ids",
+                        "memory_scope",
+                        "group_participant:web:main",
+                    ):
+                        assert private_token not in serialized_public_events
                     room_seqs = [
                         event["room_seq"]
                         for event in events1
@@ -184,6 +202,20 @@ def main() -> None:
 
             history = client.get("/api/v1/rooms/main/messages").json()["messages"]
             assert [message["content"] for message in history] == ["NEKO 你好", "你好"]
+            assert all("author_id" not in message for message in history)
+            assert all("metadata" not in message for message in history)
+            with closing(sqlite3.connect(data_dir / "public-room.db")) as connection:
+                internal_metadata = json.loads(
+                    connection.execute(
+                        """
+                        SELECT metadata_json FROM messages
+                        WHERE author_type = 'neko'
+                        ORDER BY room_seq ASC LIMIT 1
+                        """
+                    ).fetchone()[0]
+                )
+            assert internal_metadata["target_visitor_id"].startswith("vis_")
+            assert "visitor_scope" in internal_metadata["memory_scope"]
 
             with client.websocket_connect("/ws/rooms/main?after_seq=0") as cold_start:
                 assert cold_start.receive_json()["type"] == "session.ready"
@@ -382,7 +414,12 @@ def main() -> None:
                     }
                 )
                 _drain_until(speech_ws, "stream.completed")
-                _drain_until(speech_ws, "speech.ready")
+                ready_events = _drain_until(speech_ws, "speech.ready")
+                ready_event = next(
+                    event for event in ready_events if event.get("type") == "speech.ready"
+                )
+                assert "provider" not in ready_event["payload"]
+                assert "verification-private-provider" not in json.dumps(ready_event)
                 _wait_for_dependency(app.state.room_service, "tts", "ready")
 
             dependency_state = client.get("/api/v1/admin/state").json()[
@@ -497,6 +534,8 @@ def main() -> None:
                     assert ready["type"] == "session.ready"
                     assert snapshot["type"] == "stream.snapshot"
                     assert snapshot["payload"]["text"] == "等"
+                    assert "target_visitor_id" not in snapshot["payload"]
+                    assert "source_message_ids" not in snapshot["payload"]
                     assert snapshot_ws.receive_json()["type"] == "presence.updated"
 
                     cancelled = client.post(

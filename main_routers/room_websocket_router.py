@@ -161,7 +161,7 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
                     {
                         "type": "stream.snapshot",
                         "server_time": utc_now(),
-                        "payload": active.snapshot(),
+                        "payload": active.public_snapshot(),
                     }
                 ]
 

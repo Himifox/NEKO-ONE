@@ -32,19 +32,17 @@ class RoomMessage:
     status: str = "visible"
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def as_payload(self) -> dict[str, Any]:
+    def as_public_payload(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "room_id": self.room_id,
             "room_seq": self.room_seq,
             "author_type": self.author_type,
-            "author_id": self.author_id,
             "display_name": self.display_name,
             "content": self.content,
             "created_at": self.created_at,
             "reply_to_id": self.reply_to_id,
             "status": self.status,
-            "metadata": self.metadata,
         }
 
 
@@ -73,6 +71,17 @@ class ActiveGeneration:
             "room_id": self.room_id,
             "target_visitor_id": self.target_visitor_id,
             "source_message_ids": list(self.source_message_ids),
+            "text": self.text,
+            "chunk_index": self.chunk_index,
+            "phase": self.phase,
+            "cancellable": self.phase in {"preparing", "generating"},
+            "started_at": self.started_at,
+        }
+
+    def public_snapshot(self) -> dict[str, Any]:
+        return {
+            "generation_id": self.id,
+            "room_id": self.room_id,
             "text": self.text,
             "chunk_index": self.chunk_index,
             "phase": self.phase,

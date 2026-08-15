@@ -130,4 +130,4 @@ async def get_messages(
     messages = await _service(request).store.list_messages(
         room_id, before_seq=before_seq, limit=limit
     )
-    return {"messages": [message.as_payload() for message in messages]}
+    return {"messages": [message.as_public_payload() for message in messages]}

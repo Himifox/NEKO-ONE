@@ -571,6 +571,7 @@ Director 只有同时满足以下条件才可创建主动 turn：
 - LLM/TTS Key、Memory 服务地址；
 - Persona 或原始记忆文件；
 - 模型供应商管理配置；
+- 其他访客的稳定 `author_id`、目标访客 ID、Memory scope、内部消息 metadata 或 TTS provider 标识；
 - 管理 API 的静态秘密；
 - 主动搭话计时器或“每个浏览器一套”的 Director；
 - `eval`、远程脚本动作或模型生成的 HTML。

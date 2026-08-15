@@ -420,7 +420,7 @@ class RoomStore:
             room_id=room_id,
             room_seq=seq,
             event_type="message.created",
-            payload=message.as_payload(),
+            payload=message.as_public_payload(),
         )
         return message, event
 
@@ -633,7 +633,7 @@ class RoomStore:
             int(oldest) if oldest is not None else int(room["last_seq"]) + 1
         )
         snapshot["messages"] = [
-            self._row_to_message(row).as_payload() for row in reversed(rows)
+            self._row_to_message(row).as_public_payload() for row in reversed(rows)
         ]
         return snapshot
 
@@ -864,7 +864,9 @@ class RoomStore:
             }
         return {
             "visitors": [dict(row) for row in visitors],
-            "messages": [self._row_to_message(row).as_payload() for row in messages],
+            "messages": [
+                self._row_to_message(row).as_public_payload() for row in messages
+            ],
             "audit": [
                 {
                     **{key: row[key] for key in row.keys() if key != "details_json"},
@@ -925,7 +927,9 @@ class RoomStore:
             connection.execute(
                 "UPDATE messages SET status = ? WHERE id = ?", (status, message_id)
             )
-            message = self._message_by_id_on(connection, message_id).as_payload()
+            message = self._message_by_id_on(
+                connection, message_id
+            ).as_public_payload()
             seq = self._next_seq_on(connection, row["room_id"])
             event = self._insert_event_on(
                 connection,

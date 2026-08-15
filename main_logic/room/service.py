@@ -578,9 +578,8 @@ class PublicRoomService:
             {
                 "turn_id": turn_id,
                 "generation_id": generation.id,
-                "target_visitor_id": None if is_proactive else candidate.message.author_id,
-                "source_message_ids": [candidate.message.id],
                 "reason_code": reason_code,
+                "proactive": is_proactive,
             },
         )
         await self.hub.broadcast(
@@ -588,7 +587,7 @@ class PublicRoomService:
             {
                 "type": "stream.started",
                 "server_time": utc_now(),
-                "payload": generation.snapshot(),
+                "payload": generation.public_snapshot(),
             },
         )
 
@@ -809,13 +808,18 @@ class PublicRoomService:
             if payload is None:
                 raise last_error or RuntimeError("TTS synthesis failed")
             self._mark_dependency("tts", "ready")
-            payload["message_id"] = message_id
+            public_payload = {
+                key: payload[key]
+                for key in ("speech_id", "url", "content_type", "sample_rate")
+                if key in payload
+            }
+            public_payload["message_id"] = message_id
             await self.hub.broadcast(
                 room_id,
                 {
                     "type": "speech.ready",
                     "server_time": utc_now(),
-                    "payload": payload,
+                    "payload": public_payload,
                 },
             )
         except Exception as exc:
