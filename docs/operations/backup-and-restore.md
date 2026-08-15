@@ -4,6 +4,8 @@
 >
 > 更新日期：2026-08-15
 
+`.github/workflows/verify-public-runtime.yml` 会在独立的 GitHub Actions Ubuntu runner 上，用合成的公共数据库、Memory 数据和私有配置执行备份、校验、隔离恢复、篡改检测和路径穿越拒绝。该检查证明工具可在 Linux 运行，但不替代使用生产备份完成的异机恢复演练。
+
 ## 恢复目标
 
 第一版必须同时保护三类来源：
