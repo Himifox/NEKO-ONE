@@ -40,6 +40,7 @@ jobs:
             -subj /CN=neko.pardofelis.wiki \
             -keyout /etc/letsencrypt/live/neko.pardofelis.wiki/privkey.pem \
             -out /etc/letsencrypt/live/neko.pardofelis.wiki/fullchain.pem
+          install -m 0640 /dev/null /etc/nginx/neko-admin.htpasswd
           rm -f /etc/nginx/sites-enabled/default
           cp deploy/nginx-neko-public.conf /etc/nginx/conf.d/neko-public.conf
           nginx -t

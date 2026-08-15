@@ -37,6 +37,8 @@ OpenResty 对超出速率或连接数的请求返回 429。应用仍保留访客
 - HSTS、`nosniff`、`DENY`、same-origin Referrer/COOP/CORP；
 - 禁止摄像头、麦克风、定位、支付和 USB 权限；
 - 管理页面与管理 API 使用 `Cache-Control: no-store`；
+- OpenResty 在应用登录之前对 `/admin`、`/admin-assets/*` 和
+  `/api/v1/admin/*` 统一执行独立 Basic Auth；边缘密码与应用管理员密码不得复用；
 - 管理 Cookie 为 `HttpOnly`、`SameSite=Strict`，游客 Cookie 为 `HttpOnly`、`SameSite=Lax`，公网必须启用 `Secure`。
 
 第一版由 `pardofelis-web` 普通链接进入 `https://neko.pardofelis.wiki/`，默认不允许 iframe。未来确需嵌入时，必须同时把应用和 OpenResty 的 `frame-ancestors 'none'` 改为精确的 `https://pardofelis.wiki`；禁止使用 `*`，并重新验证 Cookie 与点击劫持边界。
@@ -52,7 +54,8 @@ OpenResty 对超出速率或连接数的请求返回 429。应用仍保留访客
 
 只有 SQLite 完整性/可写性/磁盘余量、主房间存在以及 LLM/Persona 配置属于阻断就绪的核心条件。Memory、TTS 与 Live2D 是可降级能力：它们会出现在详细探针中，但其单独故障不会让纯文本公共房间退出服务。
 
-管理后台只显示 `ready`、`degraded`、`disabled` 或 `unknown`、错误类型和连续失败次数，不返回供应商响应、Key、Memory 地址或聊天正文。
+管理后台必须先通过 OpenResty Basic Auth，再通过应用密码、签名 Cookie 和
+CSRF 校验。后台只显示 `ready`、`degraded`、`disabled` 或 `unknown`、错误类型和连续失败次数，不返回供应商响应、Key、Memory 地址或聊天正文。
 
 这些重试都发生在正式文字提交之后或之外，绝不能再次提交助手消息。第一版的 Memory 写入重试不是跨进程持久 outbox；进程重启后的可靠补写属于公网 Beta 的数据可靠性工作。
 

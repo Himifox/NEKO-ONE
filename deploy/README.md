@@ -18,11 +18,17 @@ Python services and reuses that public edge; do not start a second public Nginx.
    values. No character model or default voice ships in this repository.
 4. Install the two systemd units, run `systemctl daemon-reload`, then enable and
    start `neko-memory` and `neko-public`.
-5. Create `neko.pardofelis.wiki` in 1Panel, issue its TLS certificate, then merge
+5. Install `apache2-utils`, then create an edge-only administrator credential
+   with `sudo htpasswd -c /etc/nginx/neko-admin.htpasswd neko-admin`. Use a
+   different password from `NEKO_PUBLIC_ADMIN_PASSWORD`, set owner
+   `root:<openresty-worker-group>` and mode `0640`, and never add this file to
+   the repository or a web root.
+6. Create `neko.pardofelis.wiki` in 1Panel, issue its TLS certificate, then merge
    the supplied OpenResty/Nginx declarations into the existing `http` context.
-   Keep the platform's existing default-host rejection, run the OpenResty
+   Preserve both `auth_basic` directives for `/admin` and `/api/v1/admin/`, keep
+   the platform's existing default-host rejection, run the OpenResty
    configuration check, and only then reload it.
-6. Back up `/var/lib/neko-public` plus the memory/config application data every
+7. Back up `/var/lib/neko-public` plus the memory/config application data every
    day. Test restore on a separate host.
 
 The service automatically applies the finite retention policy configured by
@@ -35,7 +41,10 @@ Expected network surface:
 - Public: TCP 443 (and optional 80 redirect).
 - Loopback only: public API `127.0.0.1:48911`, memory service on its configured
   memory port.
-- Never expose the memory port, TTS upstream credentials or admin cookie secret.
+- `/admin`, `/admin-assets/*` and `/api/v1/admin/*` require the independent
+  OpenResty Basic Auth credential before the application login is reachable.
+- Never expose the memory port, TTS upstream credentials, admin cookie secret or
+  either administrator password.
 - Memory is a weak dependency: an outage degrades recall and writes but must not
   stop `neko-public`.
 
@@ -66,8 +75,10 @@ sudo -u neko uv run --locked python scripts/verify_provider_acceptance.py
 
 The deployment-security script validates the example files, while the Debian
 CI also installs the distribution Nginx package and runs `nginx -t` with an
-ephemeral certificate. Production acceptance still requires `nginx -t` on the
-actual host, an external port scan and HTTP/WSS checks from outside the VPS.
+ephemeral certificate and empty throwaway credential file. Production
+acceptance still requires `nginx -t` on the actual host, an external port scan,
+HTTP/WSS checks from outside the VPS, and confirmation that `/admin` returns
+`401` without the edge credential before the application login page is served.
 
 The capacity command above is the short deterministic baseline. Run the 30
 minute profiles and 24 hour soak from

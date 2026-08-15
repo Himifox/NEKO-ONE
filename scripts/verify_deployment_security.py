@@ -27,6 +27,8 @@ def main() -> None:
         "WebSocket connection limit": "limit_conn neko_ws 3;",
         "guest session rate limit": "limit_req zone=neko_session",
         "admin rate limit": "limit_req zone=neko_admin",
+        "admin edge authentication": 'auth_basic "NEKO private administration";',
+        "admin edge credential file": "auth_basic_user_file /etc/nginx/neko-admin.htpasswd;",
         "general API rate limit": "limit_req zone=neko_http",
         "429 limit response": "limit_req_status 429;",
         "WebSocket upgrade map": "map $http_upgrade $neko_connection_upgrade",
@@ -37,6 +39,12 @@ def main() -> None:
     }
     missing = [label for label, token in required_nginx.items() if token not in nginx]
     assert not missing, f"missing Nginx controls: {missing}"
+    assert nginx.count('auth_basic "NEKO private administration";') == 2, (
+        "both the admin page/assets and admin API must require edge authentication"
+    )
+    assert nginx.count(
+        "auth_basic_user_file /etc/nginx/neko-admin.htpasswd;"
+    ) == 2, "both admin locations must use the private edge credential file"
 
     upstreams = re.findall(r"proxy_pass\s+([^;]+);", nginx)
     assert upstreams, "Nginx example has no upstream"

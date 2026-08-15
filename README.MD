@@ -165,7 +165,9 @@ NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向�
 - 设置数据保留期、查看上次清理结果或立即执行清理。
 - 查看 LLM、Memory 与 TTS 最近一次调用的就绪/降级状态。
 
-登录使用签名的 `HttpOnly` Cookie，并对修改操作执行 CSRF 校验。生产环境必须启用 HTTPS 和安全 Cookie。
+生产入口先要求一组独立的 OpenResty Basic Auth 凭据，再使用应用管理员密码、
+签名的 `HttpOnly` Cookie 和修改操作 CSRF 校验。两组密码不得复用；生产环境必须
+启用 HTTPS 和安全 Cookie。具体凭据文件创建和权限见[部署说明](deploy/README.md)。
 
 ## 部署到公网
 
@@ -180,7 +182,7 @@ NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向�
 
 实际宿主网站是 [`Himifox/pardofelis-web`](https://github.com/Himifox/pardofelis-web)：`pardofelis.wiki` 保持静态站，NEKO 使用独立的 `https://neko.pardofelis.wiki/` 子域并由现有 1Panel OpenResty 反代到回环服务。第一版从主站使用普通链接进入，不使用 iframe，也不把 NEKO 文件放进 Vite `dist/`。完整边界见 [pardofelis-web 集成 ADR](docs/design/pardofelis-web-integration.md)。
 
-仓库提供了 OpenResty/Nginx 配置、两个 systemd unit 和环境变量模板。边缘配置已包含 CSP、HSTS、请求体、速率及连接上限；应用与 Uvicorn 还会限制 HTTP 请求体和 WebSocket 帧。Memory 使用弱依赖，服务不可用时房间退化为 Persona 与最近消息，不会随之退出。参见[部署说明](deploy/README.md)和[公网边界 ADR](docs/design/public-edge-security.md)。上线前请替换所有密钥，并为公共数据库、记忆与私有配置建立每日备份和恢复演练。
+仓库提供了 OpenResty/Nginx 配置、两个 systemd unit 和环境变量模板。边缘配置已包含 CSP、HSTS、请求体、速率及连接上限，并用独立 Basic Auth 隔离管理入口；应用与 Uvicorn 还会限制 HTTP 请求体和 WebSocket 帧。Memory 使用弱依赖，服务不可用时房间退化为 Persona 与最近消息，不会随之退出。参见[部署说明](deploy/README.md)和[公网边界 ADR](docs/design/public-edge-security.md)。上线前请替换所有密钥，并为公共数据库、记忆与私有配置建立每日备份和恢复演练。
 
 ## 验证
 
