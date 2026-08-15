@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Remote telemetry reporting state and TokenTracker reporting methods."""
+"""Local token-usage persistence with retired remote-report compatibility."""
 
 import asyncio
 import copy
@@ -36,18 +36,12 @@ from .telemetry import (
     _get_telemetry_locale, _get_telemetry_metadata, _get_telemetry_timezone,
 )
 
-_TELEMETRY_SERVER_URL = "http://118.31.122.91:8099"
-
-if _TELEMETRY_SERVER_URL and not _TELEMETRY_SERVER_URL.startswith(("http://", "https://")):
-    logger.warning("Token tracker: invalid telemetry URL scheme, disabling remote reporting")
-    _TELEMETRY_SERVER_URL = ""
-
-_TELEMETRY_HMAC_SECRET = "neko-v1-a3f8b2c1d4e5f6789012345678abcdef"  # noqa: S105
-
-_DO_NOT_TRACK = any(
-    os.getenv(v, "").strip() in ("1", "true", "yes")
-    for v in ("NEKO_DO_NOT_TRACK", "DO_NOT_TRACK")
-)
+# NEKO-ONE never sends usage data to the retired desktop telemetry service.
+# Keep the compatibility constants empty/true while the local persistence mixin
+# is progressively separated from its historical reporting implementation.
+_TELEMETRY_SERVER_URL = ""
+_TELEMETRY_HMAC_SECRET = ""
+_DO_NOT_TRACK = True
 
 _TELEMETRY_REPORT_INTERVAL = 60
 
@@ -454,10 +448,7 @@ class ReportingMixin:
             app_version = _get_app_version_from_changelog()
             telemetry_locale = _get_telemetry_locale()
             telemetry_timezone = _get_telemetry_timezone()
-            # 一次调用同时拿 distribution + steam_user_id，两个字段同源 ——
-            # 杜绝原本两次独立 GetSteamID() 跨 SDK ready 边界产生的
-            # release + 非空 Steam64 矛盾态。
-            telemetry_distribution, telemetry_steam_user_id = _get_telemetry_metadata()
+            telemetry_distribution, _legacy_identity = _get_telemetry_metadata()
             telemetry_device_hw = _get_device_hw()
 
             payload = {
@@ -473,9 +464,6 @@ class ReportingMixin:
                 "locale": telemetry_locale,
                 "timezone": telemetry_timezone,
                 "distribution": telemetry_distribution,
-                # 仅在 Steamworks SDK 起来 + 拿到 Steam64 时填值，其它情况为
-                # 空 string。server 端按 preserve-known 处理：空值不覆写历史。
-                "steam_user_id": telemetry_steam_user_id,
                 # 设备硬件画像（低基数 enum 复合串）。设备属性，server preserve-known
                 # UPSERT；用来 JOIN 留存做"低配设备首日流失"分析。
                 "device_hw": telemetry_device_hw,

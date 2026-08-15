@@ -25,6 +25,7 @@ FORBIDDEN_LEGACY_SOURCES = (
     "utils/screenshot_utils.py",
     "utils/seven_day_tutorial_state.py",
     "utils/steam_cloud_bundle.py",
+    "utils/steam_state.py",
     "utils/storage_location_bootstrap.py",
     "utils/storage_migration.py",
     "utils/storage_path_rewrite.py",
@@ -34,6 +35,7 @@ FORBIDDEN_LEGACY_SOURCES = (
     "utils/voice_design.py",
     "utils/web_scraper",
     "utils/workshop_utils.py",
+    "config/activity_keywords.py",
     "config/prompts/prompts_agent.py",
     "config/prompts/prompts_badminton.py",
     "config/prompts/prompts_card_assist.py",
@@ -65,6 +67,9 @@ def main() -> None:
     )
     memory_runtime = (ROOT / "app" / "memory_server" / "runtime.py").read_text("utf-8")
     assert "/internal/storage/" not in memory_runtime, "legacy storage control route returned"
+    reporting = (ROOT / "utils" / "token_tracker" / "reporting.py").read_text("utf-8")
+    assert "118.31.122.91" not in reporting, "retired remote telemetry endpoint returned"
+    assert '_TELEMETRY_SERVER_URL = ""' in reporting, "remote telemetry was re-enabled"
 
     with tempfile.TemporaryDirectory(prefix="neko-boundary-") as temporary:
         os.environ["NEKO_PUBLIC_DATA_DIR"] = temporary

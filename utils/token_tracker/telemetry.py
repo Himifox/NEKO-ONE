@@ -87,8 +87,7 @@ def _read_os_machine_id() -> Optional[str]:
 
     These IDs are generated at system installation and bound to the motherboard/system
     rather than network config, so they don't drift with NIC changes (VPN / Docker /
-    external NIC) or install path changes (Steam library migration, source/packaged
-    switching).
+    external NIC) or install path changes (source/package relocation).
 
     Each source's return value passes the _is_valid_machine_id sanity check, so
     placeholders (systemd `uninitialized`, all-zero/all-F GUIDs) are not taken as valid
@@ -364,9 +363,8 @@ def get_telemetry_branch() -> str:
 def _get_telemetry_locale() -> str:
     """Get the user's UI locale (zh-CN / en-US / ja-JP …).
 
-    Prefers language_utils.get_global_language_full — it checks Steam settings first
-    then falls back to the system language, the codebase's ground truth for "the UI
-    language the user actually uses". Falls back to stdlib locale on failure.
+    Prefers language_utils.get_global_language_full so explicit configuration and
+    system language remain the ground truth. Falls back to stdlib locale on failure.
     """
     try:
         from utils.language_utils import get_global_language_full
@@ -407,74 +405,8 @@ def _is_release_build() -> bool:
     return False
 
 def _get_telemetry_metadata() -> tuple[str, str]:
-    """Return ``(distribution, steam_user_id)`` at once; both fields share one source and one observation point.
-
-    Merged from the original ``_get_telemetry_distribution()`` and
-    ``_get_telemetry_steam_user_id()``: Steamworks ``Users.GetSteamID()`` is **called
-    only once**, with distribution and steam_user_id derived from the same observation.
-    Originally each function called ``GetSteamID()`` once; with the Steamworks SDK's
-    async init the two calls could straddle the ready boundary — the first returning 0
-    (distribution goes ``release``), the second returning a Steam64 (steam_user_id
-    obtained), producing the contradictory ``release + non-empty Steam64`` state. The
-    merge eliminates that state at the source.
-
-    **Invariant**: a non-empty returned steam_user_id ⟹ distribution == ``steam``.
-    (The converse doesn't hold: steam + empty ID is a legal tail, see rule 3.)
-
-    Decision order (following the original logic):
-    1. non-release build → ``("source", "")``. A source run counts as source even with
-       the Steam client open — only release can be the Steam edition.
-    2. release + ``GetSteamID()`` returns a nonzero Steam64 → ``("steam", str(sid))``.
-       Anchored to the first signal; distribution and ID share one observation.
-    3. release + workshop subscriptions > 0 or ``workshop_config.json`` exists →
-       ``("steam", "")``. Proves this machine has run the Steam edition (cloudsave
-       packs workshop_config.json along), but this run got no logged-in user from
-       the Steam client (not open / offline).
-    4. release with no Steam signal at all → ``("release", "")``.
-
-    Steam64 is reported as a string rather than an int, avoiding u64 (often > 2^53)
-    precision loss in JS / some JSON consumers. All exceptions are swallowed —
-    instrumentation must not throw.
-    """
-    if not _is_release_build():
-        return "source", ""
-
-    # 实时探测：GetSteamID() 只调一次，结果同时决定 distribution 和
-    # steam_user_id —— 这是修复 race 的核心，不再分两次调用跨越 ready 边界。
-    try:
-        from utils.steam_state import get_steamworks
-        sw = get_steamworks()
-        if sw is not None:
-            sid = 0
-            try:
-                sid = int(sw.Users.GetSteamID() or 0)
-            except Exception:
-                sid = 0
-            if sid > 0:
-                return "steam", str(sid)
-            # 没拿到登录用户，但订阅过工坊也算 Steam 版（steam + 空 ID）。
-            try:
-                if int(sw.Workshop.GetNumSubscribedItems() or 0) > 0:
-                    return "steam", ""
-            except Exception:
-                # Workshop subscription probing is optional evidence only.
-                pass
-    except Exception:
-        # Steamworks can be unavailable while the application is still usable.
-        pass
-
-    # 磁盘兜底：之前任何一次会话写过 workshop_config.json 即证明跑过 Steam
-    # 版，即使本次 Steam 客户端没开（cloudsave 会把它带走）。
-    try:
-        from utils.config_manager import get_config_manager
-        cm = get_config_manager()
-        if (cm.config_dir / "workshop_config.json").exists():
-            return "steam", ""
-    except Exception:
-        # Missing or inaccessible workshop config simply means no disk signal.
-        pass
-
-    return "release", ""
+    """Return the local build kind and an intentionally empty legacy identity."""
+    return ("release" if _is_release_build() else "source"), ""
 
 def _get_telemetry_timezone() -> str:
     """Get the local timezone. Prefers IANA (Asia/Shanghai), falling back to a UTC offset (+08:00)."""

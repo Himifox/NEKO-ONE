@@ -42,7 +42,6 @@ from typing import Any, Callable, Optional
 # ---------------------------------------------------------------------------
 
 _global_language_resolver: Optional[Callable[[], str]] = None
-_steam_language_resolver: Optional[Callable[[], Optional[str]]] = None
 _language_normalizer: Optional[Callable[..., str]] = None
 
 
@@ -53,15 +52,6 @@ def register_global_language_resolver(fn: Callable[[], str]) -> None:
     """
     global _global_language_resolver
     _global_language_resolver = fn
-
-
-def register_steam_language_resolver(fn: Callable[[], Optional[str]]) -> None:
-    """Install the function probing Steam for a language code (may return None).
-
-    Concrete impl lives in ``utils.language_utils._get_steam_language``.
-    """
-    global _steam_language_resolver
-    _steam_language_resolver = fn
 
 
 def register_language_normalizer(fn: Callable[..., str]) -> None:
@@ -90,17 +80,6 @@ def resolve_global_language(default: str = "en") -> str:
         return value if isinstance(value, str) and value else default
     except Exception:
         return default
-
-
-def resolve_steam_language() -> Optional[str]:
-    """Return Steam-reported language code, or ``None`` if unknown / unbound."""
-    fn = _steam_language_resolver
-    if fn is None:
-        return None
-    try:
-        return fn()
-    except Exception:
-        return None
 
 
 def normalize_language_code(lang: Any, format: str = "short") -> str:

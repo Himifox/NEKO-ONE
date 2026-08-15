@@ -47,9 +47,8 @@ Invariants, each learned by breaking it:
    service. The gate lives at the callers of ``_check_non_mainland`` (free-route
    code only) — ``get_core_config`` first checks a ``lanlan.tech`` URL exists.
    Re-deriving eligibility elsewhere is how this regressed three times.
-3. ``_region_cache`` is written only from the IP verdict. Steam is a fallback
-   vote that must never latch: latching it on a cold-boot timeout would let it
-   rule permanently, and IP (which bypasses the proxy) must still take over.
+3. ``_region_cache`` is written only from the HTTP IP verdict. An unavailable
+   probe uses a transient mainland default and never latches that fallback.
 4. The probe never gives up permanently. Connectivity can arrive tens of minutes
    in (WiFi after boot); the loop backs off but keeps retrying for the life of
    the process. A DNS-wedged iteration just holds the one thread until the OS
@@ -69,7 +68,6 @@ from urllib.parse import urlparse, urlunparse
 
 from config import DEFAULT_CONFIG_DATA, GEOIP_FORCE_NON_MAINLAND
 from utils.gptsovits_config import normalize_gsv_api_url
-from utils.steam_state import get_steamworks
 
 from ._shared import _as_bool, logger
 
@@ -84,8 +82,8 @@ class CoreConfigMixin:
     """Core config snapshot, geo checks and model API resolution."""
 
     # 背景探测循环的失败退避：开机自启动时本程序常跑在网络栈就绪之前，首探必超时。
-    # Steam 缺席的机器上 IP 是唯一判据，永久放弃会把整台机器锁死国内，而网络可能
-    # 几十分钟后才好（用户开机后才连 WiFi），故不设次数上限，只指数退避到封顶。
+    # IP 是唯一判据，永久放弃会把整台机器锁死国内，而网络可能几十分钟后才好，
+    # 故不设次数上限，只指数退避到封顶。
     _IP_CHECK_RETRY_BASE_S = 30.0
     _IP_CHECK_RETRY_MAX_S = 600.0
     # 指数先于乘法封顶：不封的话长期离线攒够失败次数后 float * (2**巨大整数) 会抛
@@ -289,8 +287,7 @@ class CoreConfigMixin:
             #
             # 两个 host 都要算：本函数既用于 get_core_config 的原始配置（此时是
             # lanlan.tech），也用于探测循环复查资格时读到的**已改写**快照（判海外
-            # 后是 lanlan.app）。只认 lanlan.tech 会让「Steam 判海外 + IP 未定」的
-            # 用户在第一次失败后就被判定为「不再需要区域」而停掉探测。
+            # 后是 lanlan.app）。两个域名都要保留在重试资格检查中。
             if not any(host == h or host.endswith('.' + h) for h in hosts):
                 continue
             # 该 URL 会被 livestream 前缀接管时用不到区域判定——但必须确认派生**真能
@@ -478,11 +475,8 @@ class CoreConfigMixin:
         Waiting before a session starts is what keeps it off the transient mainland
         fallback — the route is frozen into each session at start_session time.
 
-        Skipped entirely once Steam has answered. The wait exists to avoid routing on
-        *no* information; Steam's answer is information, and it is already enough to
-        pick a route. IP still outranks it — the Steam verdict is never latched, so
-        the probe takes over for later sessions once it lands. Waiting anyway would
-        tax exactly the users who already have an answer in hand.
+        The wait exists to avoid routing on no information while the only region
+        probe is actively producing a verdict.
         """
         from utils.config_manager import ConfigManager
 
@@ -490,8 +484,6 @@ class CoreConfigMixin:
         # 不写缓存不起探测）——只认缓存会让免费路由在 override 下永远报「未落定」，
         # 启动预热每次白等满 timeout。
         if GEOIP_FORCE_NON_MAINLAND is not None:
-            return True
-        if ConfigManager._steam_check_cache is not None:
             return True
         # 只在探测「真的在发请求」时才值得等。循环在退避 sleep 里同样是 alive，
         # 但那段时间不可能有结论到达——照等就是每个会话白付一次 join 超时，
@@ -512,7 +504,7 @@ class CoreConfigMixin:
                 # 压根没有探测在跑（自配 API / livestream 全派生 → 免费路由门根本没起
                 # 探测；或循环已因切走免费线路收摊）时，等到天荒地老也不会有结论——
                 # 而启动预热正是 through_backoff=True 的唯一调用方，照等就是让每个
-                # 非 Steam 的自配 API 用户白等满 5 秒才开放会话准入。
+                # 自配 API 用户白等满 5 秒才开放会话准入。
                 # 靠 in_flight 先筛：_ensure_ip_probe_started 在 start() 前就预置了
                 # in_flight，所以「刚起还没跑起来」的线程不会被误判成不存在。
                 thread = ConfigManager._ip_probe_thread
@@ -544,11 +536,6 @@ class CoreConfigMixin:
             return True
         if ConfigManager._region_cache is not None or ConfigManager._ip_check_cache is not None:
             return True
-        # Steam 已经给出结论：足够选线路了，不必再为 IP 付等待。IP 落地后照样接管
-        # （Steam 票不落定），所以这里省下的是延迟、不是正确性。
-        if self._check_steam_non_mainland() is not None:
-            return True
-
         # 读一次配置以确保背景探测已启动（幂等）。刻意走 aget_core_config 而不是
         # 直接戳 _ensure_ip_probe_started：免费路由门在 get_core_config 里
         # （needs_region + _check_non_mainland），直接戳会让自配 API / livestream
@@ -633,51 +620,8 @@ class CoreConfigMixin:
 
         return ConfigManager._ip_check_cache
 
-    @staticmethod
-    def _check_steam_non_mainland():
-        """Steam-based IP country check via Steamworks SDK.
-
-        Fallback source only — see _check_non_mainland for why the HTTP probe outranks it.
-        """
-        # Late-bound: class-level shared state (single owner) lives on the
-        # assembled ConfigManager; resolve it through the package facade.
-        from utils.config_manager import ConfigManager
-
-        if ConfigManager._steam_check_cache is not None:
-            return ConfigManager._steam_check_cache
-        try:
-            steamworks = get_steamworks()
-            if steamworks is None:
-                return None
-            ip_country = steamworks.Utils.GetIPCountry()
-            if isinstance(ip_country, bytes):
-                ip_country = ip_country.decode('utf-8')
-            if ip_country:
-                result = ip_country.upper() != "CN"
-                ConfigManager._steam_check_cache = result
-                print(f"[GeoIP] Steam IP check: country={ip_country}, non_mainland={result}", file=sys.stderr)
-                return result
-        except ImportError:
-            pass
-        except Exception as e:
-            print(f"[GeoIP] Steam IP check failed: {e}", file=sys.stderr)
-        return None
-
     def _check_non_mainland(self) -> bool:
-        """Region check: HTTP IP geo first, Steam geo only as a fallback.
-
-        This used to require both to say non-mainland. Steamworks stays silent
-        forever on non-Steam builds and on Steam builds started without the Steam
-        client running — most users only auto-start N.E.K.O., not Steam — so that
-        second yes vote never arrived and pinned those overseas users to the
-        mainland route.
-
-        IP now decides whenever it has an answer, because it is the more accurate
-        of the two: the probe disables proxies explicitly, so a user behind a plain
-        system HTTP proxy still geolocates to their real country, while
-        ``Utils.GetIPCountry()`` reports whatever exit IP Steam's servers saw — the
-        proxy's. Steam only breaks the tie when the probe has no answer at all.
-        """
+        """Return the HTTP IP region verdict or a transient mainland default."""
         # Late-bound: class-level shared state (single owner) lives on the
         # assembled ConfigManager; resolve it through the package facade.
         from utils.config_manager import ConfigManager
@@ -707,42 +651,14 @@ class CoreConfigMixin:
             print(f"[GeoIP] IP decides: non_mainland={ip_result}", file=sys.stderr)
             return ip_result
 
-        steam_result = self._check_steam_non_mainland()
-        # 探测在后台跑，可能恰好在上面这次 Steam 查询期间落地。不复查就会让兜底票
-        # 压过刚到手的权威结论；而 get_core_config 对每个 URL 各判一次，同一份快照
-        # 里就可能一半按 IP、一半按 Steam（挂代理时两者方向相反）。
-        ip_result = self._check_ip_non_mainland_http()
-        if ip_result is not None:
-            ConfigManager._region_cache = ip_result
-            ConfigManager._geo_indeterminate_logged = False
-            print(f"[GeoIP] IP decides (landed during Steam check): non_mainland={ip_result}", file=sys.stderr)
-            return ip_result
-
-        if steam_result is not None:
-            # IP 探测无结论时才轮到 Steam。它反映的是 Steam 服务端看到的出口 IP，
-            # 挂代理时同样会跟着代理走，所以只当兜底票、**永不落定** _region_cache：
-            #  - 冷启动首探超时那一刻 Steam 往往已有票，落定它等于让这一票永久裁决，
-            #    IP 的重试再没机会接管；
-            #  - 探测长期失败也不代表 Steam 就对——Steam 走海外代理而直连 GeoIP 暂时
-            #    不可用时两者会分歧，网络恢复后必须让 IP 接管。
-            if not ConfigManager._geo_steam_fallback_logged:
-                ConfigManager._geo_steam_fallback_logged = True
-                print(
-                    f"[GeoIP] Steam fallback: non_mainland={steam_result} "
-                    "(IP has no verdict yet, still retrying)",
-                    file=sys.stderr,
-                )
-            return steam_result
-
-        # No verdict from either source (ip-api.com unreachable AND Steam not yet
-        # initialised).  Do NOT write to _region_cache: either may become definitive
-        # shortly after this call, and caching False here would permanently suppress
-        # re-evaluation.
+        # No HTTP verdict yet. Do NOT write to _region_cache: the background probe
+        # may become definitive shortly after this call, and caching False here
+        # would permanently suppress re-evaluation.
         # Callers that iterate get_core_config() will simply retry the geo check on the
         # next invocation until at least one source becomes definitive.
         if not ConfigManager._geo_indeterminate_logged:
             ConfigManager._geo_indeterminate_logged = True
-            print("[GeoIP] Both sources indeterminate, transient mainland default", file=sys.stderr)
+            print("[GeoIP] HTTP source indeterminate, transient mainland default", file=sys.stderr)
         return False
 
     # Livestream 派生只接管 free 路这三个已知端点，避免劫持其他 lanlan.tech 路径
@@ -758,7 +674,7 @@ class CoreConfigMixin:
 
         ``non_mainland`` lets a caller rewriting several URLs pass one region verdict
         for all of them. Resolving per URL is not safe: the verdict is not cached
-        while it is still provisional, so Steam initialising midway through the loop
+        while it is still provisional, so an HTTP verdict arriving midway through the loop
         would leave earlier URLs on lanlan.tech and later ones on lanlan.app — one
         snapshot pointing at two regions.
         """
@@ -1428,7 +1344,7 @@ class CoreConfigMixin:
         if config['GPTSOVITS_ENABLED'] and core_cfg.get('ttsVoiceId') is not None:
             config['TTS_VOICE_ID'] = core_cfg.get('ttsVoiceId', '')
 
-        # 整份快照共用一次区域判定：判定尚未落定时它每次都会重算，Steam 若在循环
+        # 整份快照共用一次区域判定：判定尚未落定时它每次都会重算，IP 若在循环
         # 中途初始化完成，前面的 URL 会停在 lanlan.tech、后面的却变成 lanlan.app，
         # 同一份 core_config 指向两个区域。
         #

@@ -151,15 +151,12 @@ class ConfigManager(
     ROOT_STATE_VERSION = 1
     CHARACTER_TOMBSTONES_STATE_VERSION = 1
 
-    # 区域判定的三个缓存（None=未定，True=非大陆，False=大陆）：
-    #  - _region_cache：最终裁决，只由 IP 结论写（Steam 兜底票从不落定它）
+    # 区域判定缓存（None=未定，True=非大陆，False=大陆）：
+    #  - _region_cache：最终裁决，只由 IP 结论写
     #  - _ip_check_cache：背景探测线程的产物，唯一写者是 _ip_probe_loop
-    #  - _steam_check_cache：Steam SDK 的国家码
     _region_cache = None
     _ip_check_cache = None
-    _steam_check_cache = None
     _geo_indeterminate_logged = False
-    _geo_steam_fallback_logged = False
     # 保护背景探测线程的幂等启动（_ensure_ip_probe_started 的 check-and-set）。
     _geo_probe_lock = threading.Lock()
     # 背景探测线程：单个 daemon 循环，内部退避重试到成功即退出，是 _ip_check_cache

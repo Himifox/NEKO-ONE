@@ -115,13 +115,13 @@ def get_localized_default_characters(language: str | None = None) -> dict:
     """
     Get the localized default character configuration.
 
-    Translates content values based on the Steam language setting.
+    Translates content values based on the configured or system language.
     Note: legacy key names remain unchanged because internal code depends on them.
     Only used when characters.json is created for the first time.
 
     Args:
         language: Language code ('en', 'ja', 'zh', 'zh-CN', 'zh-TW').
-                  If None, fetched from Steam or defaults to 'zh-CN'.
+                  If None, fetched from the runtime language or defaults to 'zh-CN'.
 
     Returns:
         Localized copy of DEFAULT_CHARACTERS_CONFIG
@@ -129,15 +129,11 @@ def get_localized_default_characters(language: str | None = None) -> dict:
     # 获取语言代码
     if language is None:
         try:
-            # Forwarded via config._runtime → utils.language_utils
-            # (DI registered in app/runtime_bindings.py). When unbound (e.g.
-            # cold tooling), resolve_steam_language returns None and we
-            # default to zh-CN, matching the prior except branch.
-            from config._runtime import resolve_steam_language, normalize_language_code
-            steam_lang = resolve_steam_language()
-            language = normalize_language_code(steam_lang, format='full') if steam_lang else 'zh-CN'
+            from config._runtime import resolve_global_language, normalize_language_code
+            runtime_language = resolve_global_language(default='zh-CN')
+            language = normalize_language_code(runtime_language, format='full')
         except Exception as e:
-            logger.warning(f"获取 Steam 语言失败: {e}，使用默认中文")
+            logger.warning(f"获取运行时语言失败: {e}，使用默认中文")
             language = 'zh-CN'
 
     # 获取翻译映射

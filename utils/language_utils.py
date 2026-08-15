@@ -19,7 +19,7 @@ Detects the language of text and translates it into a target language
 Priority: Google Translate (googletrans) -> translatepy (only services reachable from mainland China, free) -> LLM translation
 
 Also includes global language management:
-- maintains the global language variable, priority: Steam settings > system settings
+- maintains the global language variable, priority: environment override > system settings
 - decides Chinese region vs non-Chinese region
 """
 import re
@@ -40,7 +40,6 @@ from utils.config_manager import get_config_manager
 from utils.logger_config import get_module_logger
 from utils.source_locale import source_region_from_locale
 from utils.token_tracker import set_call_type
-from utils.steam_state import get_steamworks
 
 logger = get_module_logger(__name__)
 
@@ -114,7 +113,7 @@ def _matches_lang_code(lang_lower: str, code: str, aliases: Optional[set] = None
     """Check whether a language string matches the given language code; supports exact codes, locale suffixes (`xx-XX`/`xx_XX`) and explicit aliases.
 
     Usage: avoids loose matching like `startswith('es')` misclassifying `estonian` or `esperanto` as Spanish.
-    Pass an aliases set (e.g. `{'spanish', 'latam'}`) to explicitly accept Steam/system aliases.
+    Pass an aliases set only when an upstream OS API has documented named values.
     """
     aliases = aliases or set()
     return (
@@ -126,11 +125,6 @@ def _matches_lang_code(lang_lower: str, code: str, aliases: Optional[set] = None
 
 
 _SUPPORTED_LANGUAGE_CODES: tuple = ('zh', 'en', 'ja', 'ko', 'ru', 'es', 'pt')
-_SUPPORTED_STEAM_LITERALS: frozenset = frozenset({
-    'schinese', 'tchinese', 'english', 'japanese',
-    'koreana', 'korean', 'russian', 'spanish', 'latam',
-    'portuguese', 'brazilian',
-})
 _LEGACY_SYSTEM_LANGUAGE_NAMES = {
     'english': 'en',
     'japanese': 'ja',
@@ -212,7 +206,7 @@ def is_supported_language_code(raw: Any) -> bool:
     writes state back" (e.g. ``refresh_global_language`` / ``_absorb_request_language``)
     must use this helper to fence the input out first, then call normalization.
 
-    Supported set = the codes / Steam literals that ``normalize_language_code`` actually
+    Supported set = the BCP-47-like codes that ``normalize_language_code`` actually
     recognizes; uses ``_matches_lang_code`` instead of ``startswith`` so meaningless
     prefixes like ``estonian`` / ``ptsd`` / ``essential`` don't pass validation.
     """
@@ -224,8 +218,6 @@ def is_supported_language_code(raw: Any) -> bool:
         return False
     if not s:
         return False
-    if s in _SUPPORTED_STEAM_LITERALS:
-        return True
     return any(_matches_lang_code(s, code) for code in _SUPPORTED_LANGUAGE_CODES)
 
 
@@ -670,54 +662,6 @@ def _get_system_language() -> str:
     return _probe_system_language().value or 'en'
 
 
-def _get_steam_language() -> Optional[str]:
-    """
-    Get the language from Steam settings
-    
-    Returns:
-        Language code ('zh', 'en', 'ja', 'ko', 'ru'), or None if unavailable
-    """
-    try:
-        steamworks = get_steamworks()
-        if steamworks is None:
-            return None
-
-        # Steam 语言代码到我们的语言代码的映射
-        STEAM_TO_LANG_MAP = {
-            'schinese': 'zh',
-            'tchinese': 'zh-TW',
-            'english': 'en',
-            'japanese': 'ja',
-            'ja': 'ja',
-            'koreana': 'ko',
-            'korean': 'ko',
-            'ko': 'ko',
-            'russian': 'ru',
-            'ru': 'ru',
-            'spanish': 'es',
-            'latam': 'es',
-            'es': 'es',
-            'portuguese': 'pt',
-            'brazilian': 'pt',
-            'pt': 'pt',
-        }
-        
-        # 获取 Steam 当前游戏语言
-        steam_language = steamworks.Apps.GetCurrentGameLanguage()
-        if isinstance(steam_language, bytes):
-            steam_language = steam_language.decode('utf-8')
-        
-        user_lang = STEAM_TO_LANG_MAP.get(steam_language)
-        if user_lang:
-            logger.debug(f"从Steam获取用户语言: {steam_language} -> {user_lang}")
-            return user_lang
-        
-        return None
-    except Exception as e:
-        logger.debug(f"从Steam获取语言失败: {e}")
-        return None
-
-
 def _reset_global_probe_backoff_locked() -> None:
     """Reset provisional-probe retry state while holding the global lock."""
     global _global_probe_next_retry_monotonic, _global_probe_retry_delay_seconds
@@ -741,7 +685,7 @@ def _schedule_global_probe_retry_locked(now: float) -> None:
 
 def initialize_global_language() -> str:
     """
-    Initialize the global language variable (priority: Steam settings > system settings)
+    Initialize the global language variable (environment override > system settings)
     
     Returns:
         The initialized language code ('zh', 'en', 'ja', 'ko')
@@ -758,8 +702,7 @@ def initialize_global_language() -> str:
             return _global_language or 'en'
 
         with _system_locale_probe_generation():
-            # 语言与区域分别记录置信状态：Steam 可能已经给出确定语言，但 OS
-            # 区域仍处于瞬时探测失败，反之亦然。只重试没有结论的部分。
+            # 语言与区域分别记录置信状态，只重试没有结论的部分。
             if not _global_region_initialized:
                 region_probe = _probe_china_region()
                 if region_probe.value is None:
@@ -779,7 +722,7 @@ def initialize_global_language() -> str:
                         )
 
             if not _global_language_initialized:
-                # 显式环境变量覆盖优先于 Steam 和系统语言，主要用于启动/集成测试。
+                # 显式环境变量覆盖优先于系统语言，主要用于启动/集成测试。
                 language_override = _get_language_env_override()
                 if language_override:
                     _global_language = normalize_language_code(language_override, format='short')
@@ -791,47 +734,33 @@ def initialize_global_language() -> str:
                         _global_language_full,
                     )
                 else:
-                    # 优先级1：尝试从 Steam 获取
-                    steam_lang = _get_steam_language()
-                    if steam_lang:
-                        _global_language = normalize_language_code(steam_lang, format='short')
-                        _global_language_full = normalize_language_code(steam_lang, format='full')
-                        _global_language_initialized = True
-                        logger.info(
-                            "全局语言已初始化（来自Steam）: %s (full: %s)",
-                            _global_language,
-                            _global_language_full,
+                    # 从系统设置获取。None 表示没有确定信号；对外仍返回 en，
+                    # 但不把这个 fallback 永久钉进缓存。
+                    language_probe = _probe_system_language()
+                    if language_probe.value:
+                        _global_language = normalize_language_code(
+                            language_probe.value,
+                            format='short',
                         )
-                    else:
-                        # 优先级2：从系统设置获取。None 表示没有确定信号；
-                        # 对外仍返回 en，但不把这个 fallback 永久钉进缓存。
-                        language_probe = _probe_system_language()
-                        if language_probe.value:
-                            _global_language = normalize_language_code(
-                                language_probe.value,
-                                format='short',
+                        _global_language_full = normalize_language_code(
+                            language_probe.value,
+                            format='full',
+                        )
+                        _global_language_initialized = language_probe.conclusive
+                        if language_probe.conclusive:
+                            logger.info(
+                                "全局语言已初始化（来自系统设置）: %s",
+                                _global_language,
                             )
-                            _global_language_full = normalize_language_code(
-                                language_probe.value,
-                                format='full',
-                            )
-                            _global_language_initialized = (
-                                language_probe.conclusive
-                            )
-                            if language_probe.conclusive:
-                                logger.info(
-                                    "全局语言已初始化（来自系统设置）: %s",
-                                    _global_language,
-                                )
-                            else:
-                                logger.debug(
-                                    "高优先级系统语言探测暂不可用，本次临时使用: %s",
-                                    _global_language,
-                                )
                         else:
-                            _global_language = _global_language or 'en'
-                            _global_language_full = _global_language_full or 'en'
-                            logger.debug("全局语言暂未探测到确定信号，本次使用 en")
+                            logger.debug(
+                                "高优先级系统语言探测暂不可用，本次临时使用: %s",
+                                _global_language,
+                            )
+                    else:
+                        _global_language = _global_language or 'en'
+                        _global_language_full = _global_language_full or 'en'
+                        logger.debug("全局语言暂未探测到确定信号，本次使用 en")
 
         if _global_language_initialized and _global_region_initialized:
             _reset_global_probe_backoff_locked()
@@ -947,19 +876,15 @@ def set_global_language(language: str) -> None:
 
 
 def refresh_global_language(language: str) -> bool:
-    """Recalibrate the global language cache (for late-arriving truth, e.g. obtained only after a Steam SDK startup race failed).
+    """Recalibrate the global language cache from an explicit late-arriving value.
 
     Differences from ``set_global_language``:
     - silent no-op: if the normalized value equals the current cache, return ``False``
-      directly without an INFO log (the frontend i18n bootstrap calls
-      ``/api/config/steam_language``, triggering a refresh on every cold start; it
-      shouldn't spam each time).
+      directly without an INFO log.
     - only overwrites and logs when the value differs / the cache is uninitialized.
 
-    Motivation: a late Steam verdict should replace either a conclusive OS language or
-    a provisional English fallback immediately. Automatic probes use bounded backoff,
-    while the frontend's ``/api/config/steam_language`` endpoint can provide the truth
-    as soon as Steam becomes ready.
+    A caller-provided value may replace either a conclusive OS language or a
+    provisional English fallback immediately.
 
     Returns:
         ``True`` when a real change happened; ``False`` when already current or the
@@ -968,8 +893,7 @@ def refresh_global_language(language: str) -> bool:
     global _global_language, _global_language_full, _global_language_initialized
     global _global_region, _global_region_initialized
 
-    # NEKO_LANGUAGE 是进程级强制覆盖；前端冷启动随后读取到 Steam 语言时，
-    # 不允许该晚到值把显式环境配置覆盖回去。
+    # NEKO_LANGUAGE 是进程级强制覆盖，不允许晚到值覆盖显式环境配置。
     language_override = _get_language_env_override()
     if language_override:
         language = language_override
@@ -1100,13 +1024,13 @@ def reset_global_language() -> None:
 
 def normalize_language_code(lang: str, format: str = 'short') -> str:
     """
-    Normalize a language code (uniformly handles 'zh', 'zh-CN', Steam language codes, etc.)
+    Normalize a standard or OS-reported language code.
     
     This function is a public API for reuse by other modules.
     
     Supported input formats:
     - standard language codes: 'zh', 'zh-CN', 'zh-TW', 'en', 'en-US', 'ja', 'ja-JP', 'ko', 'ko-KR', etc.
-    - Steam language codes: 'schinese', 'tchinese', 'english', 'japanese', etc.
+    - exact language names returned by supported OS locale APIs
     
     Args:
         lang: input language code
@@ -1122,44 +1046,7 @@ def normalize_language_code(lang: str, format: str = 'short') -> str:
     
     lang_lower = lang.lower().strip()
     
-    # Steam 语言代码映射
-    # 参考: https://partner.steamgames.com/doc/store/localization/languages
-    STEAM_LANG_MAP = {
-        'schinese': 'zh',      # 简体中文
-        'tchinese': 'zh-TW',   # 繁体中文
-        'english': 'en',       # 英文
-        'japanese': 'ja',      # 日语
-        'koreana': 'ko',       # 韩语
-        'korean': 'ko',        # 兼容
-        'russian': 'ru',       # 俄语
-        'spanish': 'es',       # 西班牙语（欧洲）
-        'latam': 'es',         # 西班牙语（拉美）— 归一到 es
-        'portuguese': 'pt',    # 葡萄牙语（欧洲）
-        'brazilian': 'pt',     # 葡萄牙语（巴西）— 归一到 pt
-    }
-    
-    # 先检查是否是 Steam 语言代码
-    if lang_lower in STEAM_LANG_MAP:
-        normalized = STEAM_LANG_MAP[lang_lower]
-        # 对 Steam 映射结果也应用短格式归一化
-        if format == 'short':
-            if normalized.startswith('zh'):
-                return 'zh'
-            elif normalized.startswith('ja'):
-                return 'ja'
-            elif normalized.startswith('en'):
-                return 'en'
-            elif normalized.startswith('ko'):
-                return 'ko'
-            elif normalized.startswith('ru'):
-                return 'ru'
-            elif normalized.startswith('es'):
-                return 'es'
-            elif normalized.startswith('pt'):
-                return 'pt'
-        elif format == 'full' and normalized == 'zh':
-            return 'zh-CN'
-        return normalized
+    lang_lower = _LEGACY_SYSTEM_LANGUAGE_NAMES.get(lang_lower, lang_lower).lower()
     
     # 标准语言代码处理
     if lang_lower.startswith('zh'):
@@ -1180,9 +1067,9 @@ def normalize_language_code(lang: str, format: str = 'short') -> str:
         return 'ko'
     elif lang_lower.startswith('ru'):
         return 'ru'
-    elif _matches_lang_code(lang_lower, 'es', {'spanish', 'latam'}):
+    elif _matches_lang_code(lang_lower, 'es'):
         return 'es'
-    elif _matches_lang_code(lang_lower, 'pt', {'portuguese', 'brazilian'}):
+    elif _matches_lang_code(lang_lower, 'pt'):
         return 'pt'
     elif lang_lower.startswith('en'):
         return 'en'
@@ -1678,7 +1565,7 @@ def detect_prompt_language(
         ui_language: the caller's own language, preferred over the process-wide
             one. Pass the session's ``user_language`` where there is a session:
             the frontend sets it per character session, so on a machine whose
-            Steam/system locale disagrees, the global value is the wrong answer
+            system locale disagrees, the global value is the wrong answer
             in both directions.
 
     Returns:
@@ -2043,10 +1930,9 @@ class TranslationService:
 
         Rebuilt whenever the resolved emotion route changes, exactly like
         ``TaskDeduper._get_llm`` / ``computer_use``'s ``_llm_client_sig``: the
-        emotion route is region-dependent, and a client built while Steam's
-        provisional fallback was in effect would otherwise pin every persona
-        translation to the wrong regional endpoint for the process lifetime
-        once the authoritative IP verdict lands the other way. The
+        emotion route is region-dependent, and a client built while the HTTP
+        region verdict was still provisional would otherwise pin every persona
+        translation to the wrong regional endpoint for the process lifetime. The
         (route, client) pair lives in ONE attribute so a concurrent rebuild can
         never pair an old client with the new route fingerprint; the cache lock
         additionally keeps construction single-flight.

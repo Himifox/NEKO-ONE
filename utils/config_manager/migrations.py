@@ -70,12 +70,9 @@ class MigrationsMixin:
             Path | None: localized file path, or None when language detection fails or the file does not exist (fall back to default)
         """
         try:
-            from utils.language_utils import _get_steam_language, _get_system_language, normalize_language_code
-            
-            # 优先使用 Steam 语言，其次系统语言
-            raw_lang = _get_steam_language()
-            if not raw_lang:
-                raw_lang = _get_system_language()
+            from utils.language_utils import _get_system_language, normalize_language_code
+
+            raw_lang = _get_system_language()
             if not raw_lang:
                 return None
             
@@ -215,7 +212,7 @@ class MigrationsMixin:
 
         **Unlinked entries** (orphan memory whose directory name is not in
         ``characters.json[猫娘]``) are out of scope here; they are handled entirely by
-        the Workshop page's "clean up legacy memory" button via
+        an administrator's explicit "clean up legacy memory" action via
         ``/api/memory/legacy/scan`` + ``purge`` with explicit user selection.
 
         This method should be called after ``migrate_config_files`` /
