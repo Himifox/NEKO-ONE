@@ -1,0 +1,92 @@
+{
+  "schema": "neko-one.capacity-evidence.v1",
+  "ok": true,
+  "started_at": "2026-08-15T13:15:13Z",
+  "completed_at": "2026-08-15T14:45:16Z",
+  "environment": {
+    "platform": "Windows local workspace",
+    "python": "3.11",
+    "providers": "deterministic-fakes"
+  },
+  "configuration": {
+    "profiles": [10, 25, 50],
+    "duration_seconds_per_profile": 1800.0,
+    "messages_per_second": 1.0,
+    "model_delay_ms": 2.0,
+    "progress_seconds": 30
+  },
+  "results": [
+    {
+      "visitors": 10,
+      "submitted_messages": 1800,
+      "elapsed_seconds": 1800.062,
+      "drain_seconds": 0.0,
+      "submit_p95_ms": 16.0,
+      "max_director_depth": 1,
+      "max_generation_concurrency": 1,
+      "room_last_seq": 5400,
+      "sqlite_messages": 3600,
+      "sqlite_events": 5400,
+      "sqlite_turns": 1800,
+      "peak_python_mib": 0.239,
+      "python_end_mib": 0.162,
+      "python_growth_mib": 0.155,
+      "max_runtime_tasks": 13,
+      "database_mib": 7.0,
+      "wal_mib": 0.0,
+      "slow_client_isolated": true,
+      "writer_tasks_after_disconnect": 0,
+      "progress_sample_count": 59
+    },
+    {
+      "visitors": 25,
+      "submitted_messages": 1800,
+      "elapsed_seconds": 1801.016,
+      "drain_seconds": 0.0,
+      "submit_p95_ms": 16.0,
+      "max_director_depth": 1,
+      "max_generation_concurrency": 1,
+      "room_last_seq": 5400,
+      "sqlite_messages": 3600,
+      "sqlite_events": 5400,
+      "sqlite_turns": 1800,
+      "peak_python_mib": 0.245,
+      "python_end_mib": 0.156,
+      "python_growth_mib": 0.148,
+      "max_runtime_tasks": 28,
+      "database_mib": 6.98,
+      "wal_mib": 0.0,
+      "slow_client_isolated": true,
+      "writer_tasks_after_disconnect": 0,
+      "progress_sample_count": 59
+    },
+    {
+      "visitors": 50,
+      "submitted_messages": 1800,
+      "elapsed_seconds": 1800.032,
+      "drain_seconds": 0.0,
+      "submit_p95_ms": 16.0,
+      "max_director_depth": 1,
+      "max_generation_concurrency": 1,
+      "room_last_seq": 5400,
+      "sqlite_messages": 3600,
+      "sqlite_events": 5400,
+      "sqlite_turns": 1800,
+      "peak_python_mib": 0.336,
+      "python_end_mib": 0.213,
+      "python_growth_mib": 0.203,
+      "max_runtime_tasks": 53,
+      "database_mib": 6.992,
+      "wal_mib": 0.0,
+      "slow_client_isolated": true,
+      "writer_tasks_after_disconnect": 0,
+      "progress_sample_count": 59
+    }
+  ],
+  "raw_report": {
+    "path": "var/evidence/capacity-30m.json",
+    "committed": false,
+    "sha256": "a6248d59188fc1cbcb6724f1cc177a1f2aae57db741f2a38906b562f0146993c",
+    "note": "The local raw report contains all 30-second progress samples; this committed evidence removes repetitive samples but preserves every gate metric."
+  }
+}
