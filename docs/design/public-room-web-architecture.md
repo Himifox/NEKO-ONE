@@ -827,6 +827,6 @@ WebSocket schema 应成为单一事实源，并生成或校验前后端类型，
 1. 账号登录供应商和管理员 MFA 方案；
 2. 内容审核供应商、失败时 fail-closed 的具体范围；
 3. Live2D 模型、动作、字体和 TTS 音色的公网使用许可；
-4. 博客最终使用链接、同域反代还是受限 iframe 嵌入。
+4. `pardofelis-web` 第一版已经确定使用普通链接进入 `https://neko.pardofelis.wiki/`；受限 iframe 或组件嵌入需另做 ADR。
 
-已完成的边界决策由[数据保留 ADR](./retention-policy.md)和[公网边界与依赖降级 ADR](./public-edge-security.md)承接。未完成上述决策前，不得开放账号、公开未审核音色、接入内容审核或放宽 iframe 策略。
+已完成的边界决策由[数据保留 ADR](./retention-policy.md)、[公网边界与依赖降级 ADR](./public-edge-security.md)和 [pardofelis-web 集成 ADR](./pardofelis-web-integration.md)承接。未完成其余决策前，不得开放账号、公开未审核音色、接入内容审核或放宽 iframe 策略。

@@ -28,10 +28,21 @@ jobs:
       - name: Prepare Debian container
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git
+          apt-get install -y --no-install-recommends ca-certificates curl git nginx openssl
 
       - name: Check out source
         uses: actions/checkout@v7
+
+      - name: Verify Debian Nginx configuration
+        run: |
+          install -d -m 0755 /etc/letsencrypt/live/neko.pardofelis.wiki
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj /CN=neko.pardofelis.wiki \
+            -keyout /etc/letsencrypt/live/neko.pardofelis.wiki/privkey.pem \
+            -out /etc/letsencrypt/live/neko.pardofelis.wiki/fullchain.pem
+          rm -f /etc/nginx/sites-enabled/default
+          cp deploy/nginx-neko-public.conf /etc/nginx/conf.d/neko-public.conf
+          nginx -t
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0

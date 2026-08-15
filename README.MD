@@ -49,7 +49,7 @@ NEKO-ONE 不是把大模型塞进聊天框，也不是每次刷新后重新认�
 
 ```mermaid
 flowchart LR
-    V["访客浏览器"] -->|"HTTPS / WSS"| RP["Nginx 反向代理"]
+    V["访客浏览器"] -->|"HTTPS / WSS"| RP["1Panel OpenResty"]
     A["私有管理后台"] -->|"HTTPS"| RP
     RP --> API["neko-public :48911"]
 
@@ -124,7 +124,7 @@ uv run --env-file .env.public neko-public
 
 如果 `NEKO_PUBLIC_ADMIN_PASSWORD` 少于 12 位或未设置，管理 API 会保持禁用。
 就绪检查会实际验证 SQLite 完整性、可写性、最低磁盘余量和 LLM/Persona
-配置；Memory、TTS 与 Live2D 作为可降级能力单独报告。生产 Nginx 只允许
+配置；Memory、TTS 与 Live2D 作为可降级能力单独报告。生产 OpenResty 只允许
 本机监控访问详细就绪结果，公网只保留不含依赖细节的存活检查。
 
 ## 记忆与身份边界
@@ -173,12 +173,14 @@ NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向�
 
 | 网络入口 | 作用 | 是否公开 |
 | --- | --- | --- |
-| `443/tcp` | Nginx HTTPS / WSS | **是** |
+| `443/tcp` | 现有 1Panel OpenResty HTTPS / WSS | **是** |
 | `127.0.0.1:48911` | 公共房间 API | 否 |
 | Memory Server 端口 | 长期记忆服务 | 否 |
 | LLM / TTS 配置 | 供应商凭据 | 否 |
 
-仓库提供了 Nginx 配置、两个 systemd unit 和环境变量模板。Nginx 已配置 CSP、HSTS、请求体、速率及连接上限；应用与 Uvicorn 还会限制 HTTP 请求体和 WebSocket 帧。Memory 使用弱依赖，服务不可用时房间退化为 Persona 与最近消息，不会随之退出。参见[部署说明](deploy/README.md)和[公网边界 ADR](docs/design/public-edge-security.md)。上线前请替换域名与所有密钥，并为公共数据库、记忆与私有配置建立每日备份和恢复演练。
+实际宿主网站是 [`Himifox/pardofelis-web`](https://github.com/Himifox/pardofelis-web)：`pardofelis.wiki` 保持静态站，NEKO 使用独立的 `https://neko.pardofelis.wiki/` 子域并由现有 1Panel OpenResty 反代到回环服务。第一版从主站使用普通链接进入，不使用 iframe，也不把 NEKO 文件放进 Vite `dist/`。完整边界见 [pardofelis-web 集成 ADR](docs/design/pardofelis-web-integration.md)。
+
+仓库提供了 OpenResty/Nginx 配置、两个 systemd unit 和环境变量模板。边缘配置已包含 CSP、HSTS、请求体、速率及连接上限；应用与 Uvicorn 还会限制 HTTP 请求体和 WebSocket 帧。Memory 使用弱依赖，服务不可用时房间退化为 Persona 与最近消息，不会随之退出。参见[部署说明](deploy/README.md)和[公网边界 ADR](docs/design/public-edge-security.md)。上线前请替换所有密钥，并为公共数据库、记忆与私有配置建立每日备份和恢复演练。
 
 ## 验证
 
@@ -236,7 +238,7 @@ main_logic/room/          连接、队列、导演、对话、记忆与语音编
 main_routers/             公共 HTTP、管理 API 与 WebSocket 协议
 frontend/public-room/     访客页面
 frontend/public-admin/    私有管理后台
-deploy/                   Nginx 与 systemd 部署配置
+deploy/                   OpenResty/Nginx 与 systemd 部署配置
 docs/                     当前架构与设计文档
 ```
 

@@ -32,6 +32,8 @@ def main() -> None:
         "WebSocket upgrade map": "map $http_upgrade $neko_connection_upgrade",
         "private readiness probe": "location = /api/v1/health/ready",
         "loopback readiness allowlist": "allow 127.0.0.1;",
+        "production hostname": "server_name neko.pardofelis.wiki;",
+        "production certificate": "/etc/letsencrypt/live/neko.pardofelis.wiki/fullchain.pem",
     }
     missing = [label for label, token in required_nginx.items() if token not in nginx]
     assert not missing, f"missing Nginx controls: {missing}"
@@ -50,6 +52,7 @@ def main() -> None:
         "NEKO_PUBLIC_HOST=127.0.0.1",
         "NEKO_PUBLIC_FORWARDED_ALLOW_IPS=127.0.0.1",
         "NEKO_PUBLIC_ALLOW_MISSING_ORIGIN=0",
+        "NEKO_PUBLIC_ALLOWED_ORIGINS=https://neko.pardofelis.wiki",
         "NEKO_PUBLIC_MAX_HTTP_BODY_BYTES=32768",
         "NEKO_PUBLIC_WS_MAX_SIZE_BYTES=16384",
         "NEKO_PUBLIC_WS_MAX_FRAME_CHARS=8192",

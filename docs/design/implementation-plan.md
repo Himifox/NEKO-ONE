@@ -188,7 +188,7 @@ NEKO-ONE 不再延续原项目“桌面宠物 + 直播 + 插件 + Agent + 游戏
 
 ### 8.2 主要交付
 
-- 同域链接、受限 iframe 或组件嵌入方案；
+- `pardofelis-web` 到 `https://neko.pardofelis.wiki/` 的稳定入口；第一版使用普通链接，iframe/组件嵌入另做 ADR；
 - HTTP/WebSocket 协议版本、弃用周期和升级说明；
 - 管理员手册、事故响应、数据请求和维护窗口流程；
 - 服务状态页、变更日志和发布检查表；

@@ -1,10 +1,10 @@
 # NEKO Public Room — Debian 12 deployment
 
-The supported first-release target is Debian 12. It runs two loopback-only
-Python services and one public Nginx reverse proxy; only Nginx listens on the
-public network.
+The supported first-release target is the Debian 12 VPS that already hosts
+`pardofelis.wiki` through 1Panel-managed OpenResty. NEKO adds two loopback-only
+Python services and reuses that public edge; do not start a second public Nginx.
 
-1. Install Debian packages `ca-certificates`, `curl`, `nginx`, `python3.11` and
+1. Install Debian packages `ca-certificates`, `curl`, `python3.11` and
    `python3.11-venv`, install `uv`, create the `neko` system user, and copy this
    tree to `/opt/neko-one`. Run `sudo -u neko uv sync --locked --no-dev` from
    that directory so deployment uses the committed lock file.
@@ -18,9 +18,10 @@ public network.
    values. No character model or default voice ships in this repository.
 4. Install the two systemd units, run `systemctl daemon-reload`, then enable and
    start `neko-memory` and `neko-public`.
-5. Install the Nginx configuration inside the `http` context (for example under
-   `/etc/nginx/conf.d`), issue the TLS certificate, replace
-   `neko.example.com`, run `nginx -t`, and only then reload Nginx.
+5. Create `neko.pardofelis.wiki` in 1Panel, issue its TLS certificate, then merge
+   the supplied OpenResty/Nginx declarations into the existing `http` context.
+   Keep the platform's existing default-host rejection, run the OpenResty
+   configuration check, and only then reload it.
 6. Back up `/var/lib/neko-public` plus the memory/config application data every
    day. Test restore on a separate host.
 
@@ -45,9 +46,10 @@ headroom, room initialization, or the private LLM/Persona configuration fails.
 Memory, TTS and Live2D remain reported degradations and do not block the text
 room. Nginx denies public access to the detailed readiness response.
 
-The default CSP refuses every iframe parent. If the room is later embedded in a
-blog, replace `frame-ancestors 'none'` in both the application policy and Nginx
-with the exact HTTPS blog origin. Never use `*`.
+The first release links from `pardofelis-web` to the NEKO subdomain and keeps
+`frame-ancestors 'none'`. If iframe embedding is considered later, replace it
+in both policies with exactly `https://pardofelis.wiki` and revalidate Cookie,
+audio and clickjacking behavior. Never use `*`.
 
 Before deployment, run from `/opt/neko-one` as the `neko` service user:
 
@@ -62,9 +64,10 @@ sudo -u neko uv run --locked python scripts/verify_public_assets.py
 sudo -u neko uv run --locked python scripts/verify_provider_acceptance.py
 ```
 
-The deployment-security script validates the example files, not the installed Nginx binary.
-Production acceptance still requires `nginx -t`, an external port scan and
-HTTP/WSS checks from outside the VPS.
+The deployment-security script validates the example files, while the Debian
+CI also installs the distribution Nginx package and runs `nginx -t` with an
+ephemeral certificate. Production acceptance still requires `nginx -t` on the
+actual host, an external port scan and HTTP/WSS checks from outside the VPS.
 
 The capacity command above is the short deterministic baseline. Run the 30
 minute profiles and 24 hour soak from

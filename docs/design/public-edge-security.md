@@ -8,7 +8,7 @@
 
 ## 决策
 
-NEKO-ONE 第一版只允许 Nginx 暴露 TCP 443。公共 FastAPI 与 Memory 服务必须监听回环地址，LLM/TTS Key 继续保存在服务端私有配置中。
+NEKO-ONE 第一版只允许现有 1Panel OpenResty 暴露 TCP 443。公共 FastAPI 与 Memory 服务必须监听回环地址，LLM/TTS Key 继续保存在服务端私有配置中。
 
 Memory 是公共房间的弱依赖：systemd 使用 `Wants` 而不是 `Requires`。Memory 停止时，公共消息、Persona 和最近消息仍可继续工作，不能连带停止房间进程。
 
@@ -16,22 +16,22 @@ Memory 是公共房间的弱依赖：systemd 使用 `Wants` 而不是 `Requires`
 
 | 边界 | 默认值 | 执行位置 |
 | --- | ---: | --- |
-| HTTP 请求体 | 32 KiB | Nginx 与 FastAPI `Content-Length` 边界 |
+| HTTP 请求体 | 32 KiB | OpenResty 与 FastAPI `Content-Length` 边界 |
 | WebSocket 单帧 | 8192 字符、16384 字节 | 应用协议与 Uvicorn |
-| 同 IP HTTP 连接 | 20 | Nginx |
-| 同 IP WebSocket | 3 | Nginx |
-| 游客会话创建 | 5 次/分钟，burst 3 | Nginx |
-| 管理入口 | 60 次/分钟，burst 20 | Nginx；应用另有登录限速 |
-| 一般 HTTP | 30 次/秒，burst 60 | Nginx |
+| 同 IP HTTP 连接 | 20 | OpenResty |
+| 同 IP WebSocket | 3 | OpenResty |
+| 游客会话创建 | 5 次/分钟，burst 3 | OpenResty |
+| 管理入口 | 60 次/分钟，burst 20 | OpenResty；应用另有登录限速 |
+| 一般 HTTP | 30 次/秒，burst 60 | OpenResty |
 | LLM 单轮总时限 | 120 秒 | `PublicRoomService` |
 
-Nginx 对超出速率或连接数的请求返回 429。应用仍保留访客级消息长度、窗口频率、WebSocket Origin、Cookie 身份和幂等校验；代理限制不能替代业务限制。
+OpenResty 对超出速率或连接数的请求返回 429。应用仍保留访客级消息长度、窗口频率、WebSocket Origin、Cookie 身份和幂等校验；代理限制不能替代业务限制。
 
-详细 readiness 只允许同机监控或负载均衡器从回环地址访问，Nginx 对公网请求返回 403；公开 liveness 只证明进程存活，不返回依赖状态。readiness 会执行 SQLite `quick_check`、最长 2 秒等待的可回滚写入，并检查最低磁盘余量、主房间及 LLM/Persona 配置。响应只公开布尔状态和错误类别，不返回磁盘容量、模型地址、Memory 地址或凭据。
+详细 readiness 只允许同机监控或负载均衡器从回环地址访问，OpenResty 对公网请求返回 403；公开 liveness 只证明进程存活，不返回依赖状态。readiness 会执行 SQLite `quick_check`、最长 2 秒等待的可回滚写入，并检查最低磁盘余量、主房间及 LLM/Persona 配置。响应只公开布尔状态和错误类别，不返回磁盘容量、模型地址、Memory 地址或凭据。
 
 ## 浏览器安全策略
 
-应用直连响应与 Nginx 公网响应都设置以下基线：
+应用直连响应与 OpenResty 公网响应都设置以下基线：
 
 - CSP 只允许同源脚本、样式、字体、媒体和连接；禁止 `object`、`base` 与任意父页面；
 - HSTS、`nosniff`、`DENY`、same-origin Referrer/COOP/CORP；
@@ -39,7 +39,7 @@ Nginx 对超出速率或连接数的请求返回 429。应用仍保留访客级�
 - 管理页面与管理 API 使用 `Cache-Control: no-store`；
 - 管理 Cookie 为 `HttpOnly`、`SameSite=Strict`，游客 Cookie 为 `HttpOnly`、`SameSite=Lax`，公网必须启用 `Secure`。
 
-第一版默认不允许 iframe。未来博客确需嵌入时，必须同时把应用和 Nginx 的 `frame-ancestors 'none'` 改为精确的 HTTPS 博客 Origin；禁止使用 `*`，并重新验证 Cookie 与点击劫持边界。
+第一版由 `pardofelis-web` 普通链接进入 `https://neko.pardofelis.wiki/`，默认不允许 iframe。未来确需嵌入时，必须同时把应用和 OpenResty 的 `frame-ancestors 'none'` 改为精确的 `https://pardofelis.wiki`；禁止使用 `*`，并重新验证 Cookie 与点击劫持边界。
 
 ## 依赖故障语义
 
