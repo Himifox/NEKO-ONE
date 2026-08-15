@@ -283,7 +283,8 @@ def _insert_rows(
                 for column in columns
             )
         )
-    connection.executemany(query, values)
+    with connection.cursor() as cursor:
+        cursor.executemany(query, values)
 
 
 def _target_evidence(connection: psycopg.Connection) -> dict[str, Any]:
