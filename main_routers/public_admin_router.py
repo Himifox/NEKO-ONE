@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from main_logic.room.admin_auth import ADMIN_COOKIE_NAME
+from main_logic.room.conversation import MAX_PUBLIC_PERSONA_CHARS
 from utils.config_manager import get_config_manager, get_reserved, set_reserved
 
 router = APIRouter(prefix="/api/v1/admin")
@@ -20,7 +21,7 @@ class LoginRequest(BaseModel):
 
 
 class PersonaUpdate(BaseModel):
-    system_prompt: str = Field(min_length=1, max_length=12000)
+    system_prompt: str = Field(min_length=1, max_length=MAX_PUBLIC_PERSONA_CHARS)
 
 
 class StatusUpdate(BaseModel):
