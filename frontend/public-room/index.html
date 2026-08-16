@@ -3,35 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light" />
     <meta name="referrer" content="same-origin" />
-    <title>NEKO 公共房间</title>
+    <title>NEKO 公共房间 · 直播中</title>
     <script src="/assets/room-theme.js?v=1"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=6" />
+    <link rel="stylesheet" href="/assets/styles.css?v=7" />
   </head>
   <body>
     <main class="room-shell">
-      <section class="stage" aria-label="NEKO 形象区域">
-        <div class="stage-glow" aria-hidden="true"></div>
-        <div class="scene-pill" aria-label="当前房间时段">
-          <span class="scene-indicator" aria-hidden="true"></span>
-          <span><small>ROOM AMBIENCE</small><strong id="room-period-label">自动场景</strong></span>
-        </div>
-        <canvas id="live2d-canvas" aria-label="NEKO Live2D" width="720" height="720"></canvas>
-        <div class="avatar-placeholder" id="avatar-placeholder">
-          <span>NEKO</span>
-          <small>正在加载 Live2D</small>
-        </div>
-        <div class="presence-pill"><span class="presence-dot"></span><span id="online-count">0</span> 人在线</div>
-        <div class="avatar-caption">
-          <small>RESIDENT HOST</small>
-          <strong>NEKO</strong>
-          <span>与你共享此刻的房间</span>
-        </div>
-      </section>
-
-      <section class="chat-panel" aria-label="公共聊天">
-        <header>
+      <header class="live-bar" aria-label="直播间信息">
+        <div class="live-bar-brand">
+          <span class="live-badge" aria-hidden="true"><i class="live-badge-dot"></i>LIVE</span>
           <div class="room-title-lockup">
             <span class="room-monogram" aria-hidden="true">N</span>
             <div>
@@ -39,7 +21,52 @@
               <h1>NEKO 公共房间</h1>
             </div>
           </div>
+        </div>
+        <div class="live-bar-stats">
+          <div class="scene-pill" aria-label="当前房间时段">
+            <span class="scene-indicator" aria-hidden="true"></span>
+            <span><small>ROOM AMBIENCE</small><strong id="room-period-label">自动场景</strong></span>
+          </div>
+          <div class="viewers-chip" title="当前在线观看">
+            <span class="presence-dot" aria-hidden="true"></span>
+            <span id="online-count">0</span>
+            <span>人观看</span>
+          </div>
+        </div>
+        <div class="live-bar-actions">
+          <button type="button" id="follow-button" class="action-button follow-button" aria-pressed="false">
+            <span class="follow-heart" aria-hidden="true">♡</span>
+            <span class="follow-label">关注</span>
+          </button>
+          <button type="button" id="like-button" class="action-button like-button" aria-label="点赞">
+            <span aria-hidden="true">♥</span><span>点赞</span>
+            <span class="like-count-badge" id="like-count" hidden>0</span>
+          </button>
           <div id="connection-state" class="connection-state" data-state="connecting">连接中</div>
+        </div>
+      </header>
+
+      <section class="stage" aria-label="NEKO 形象区域">
+        <div class="stage-glow" aria-hidden="true"></div>
+        <canvas id="live2d-canvas" aria-label="NEKO Live2D" width="720" height="720"></canvas>
+        <div class="avatar-placeholder" id="avatar-placeholder">
+          <span>NEKO</span>
+          <small>正在加载 Live2D</small>
+        </div>
+        <div class="avatar-caption">
+          <small>RESIDENT HOST</small>
+          <strong>NEKO</strong>
+          <span>与你共享此刻的房间</span>
+        </div>
+        <div class="stage-onair" aria-hidden="true"><i></i>直播中</div>
+        <div class="like-burst-layer" id="like-burst-layer" aria-hidden="true"></div>
+      </section>
+
+      <section class="chat-panel" aria-label="公共聊天">
+        <header class="danmaku-header">
+          <span class="danmaku-live-dot" aria-hidden="true"></span>
+          <strong>弹幕</strong>
+          <span class="danmaku-hint">实时滚动</span>
         </header>
 
         <div id="timeline" class="timeline" role="log" aria-live="polite" aria-relevant="additions"></div>
@@ -75,5 +102,6 @@
     <script src="/runtime/pixi-live2d-display-cubism4.min.js"></script>
     <script src="/assets/live2d.js?v=3" defer></script>
     <script src="/assets/app.js?v=3" defer></script>
+    <script src="/assets/room-interactions.js?v=1" defer></script>
   </body>
 </html>
