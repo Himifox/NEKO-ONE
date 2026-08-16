@@ -30,6 +30,10 @@ class RoomInputError(ValueError):
         self.code = code
 
 
+class EmptyModelResponseError(RuntimeError):
+    """Raised after the model produces no visitor-visible text twice."""
+
+
 class PublicRoomService:
     def __init__(self, *, database_url: str, data_dir: Path):
         data_root = Path(data_dir)
@@ -152,6 +156,22 @@ class PublicRoomService:
         except ValueError:
             value = default
         return max(minimum, min(value, maximum))
+
+    @staticmethod
+    def _generation_error_code(exc: Exception) -> str:
+        """Return a stable, non-sensitive diagnosis for the admin status view."""
+
+        if isinstance(exc, EmptyModelResponseError):
+            return "empty_response"
+        if isinstance(exc, TimeoutError):
+            return "timeout"
+        if isinstance(exc, OSError):
+            return "network_error"
+        if isinstance(exc, ValueError):
+            return "invalid_response"
+        if isinstance(exc, RuntimeError):
+            return "upstream_runtime_error"
+        return "generation_error"
 
     async def start(self) -> None:
         if self._started:
@@ -652,13 +672,17 @@ class PublicRoomService:
                     timeout=float(self.llm_timeout_seconds),
                 )
             except Exception as exc:
-                self._mark_dependency("llm", "degraded", type(exc).__name__)
+                self._mark_dependency(
+                    "llm", "degraded", self._generation_error_code(exc)
+                )
                 raise
             else:
                 self._mark_dependency("llm", "ready")
             final_text, emotion = split_emotion_tags(raw_final_text)
             if not final_text:
-                raise RuntimeError("model returned an empty response")
+                raise EmptyModelResponseError(
+                    "model returned no visitor-visible text after retry"
+                )
             # From this point forward, cancellation is cooperative-only. In
             # In particular, never cancel the PostgreSQL commit thread after
             # it has started and then mark the same turn as interrupted.
@@ -761,7 +785,9 @@ class PublicRoomService:
             async with self._generation_locks[room_id]:
                 generation.phase = "failed"
                 await self.store.finish_turn(
-                    turn_id, status="failed", error_code=type(exc).__name__
+                    turn_id,
+                    status="failed",
+                    error_code=self._generation_error_code(exc),
                 )
                 await self._append_and_broadcast_event(
                     room_id,

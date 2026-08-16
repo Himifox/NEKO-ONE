@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import os
 
+from config.prompts.prompts_chara import is_default_prompt
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
@@ -19,7 +20,7 @@ class LoginRequest(BaseModel):
 
 
 class PersonaUpdate(BaseModel):
-    system_prompt: str = Field(min_length=1, max_length=50000)
+    system_prompt: str = Field(min_length=1, max_length=12000)
 
 
 class StatusUpdate(BaseModel):
@@ -105,27 +106,31 @@ async def logout(request: Request, response: Response) -> dict:
     return {"ok": True}
 
 
-async def _persona() -> tuple[str, str]:
+async def _persona(service) -> tuple[str, str, str]:
     manager = get_config_manager()
     characters = await manager.aload_characters()
     current = characters.get("当前猫娘") or next(iter(characters.get("猫娘", {})), "")
     data = characters.get("猫娘", {}).get(current, {})
-    return current, str(
+    stored = str(
         get_reserved(data, "system_prompt", default="", legacy_keys=("system_prompt",)) or ""
     )
+    _runtime_character, effective = await service.engine.character()
+    source = "builtin_default" if not stored or is_default_prompt(stored) else "custom"
+    return current, effective, source
 
 
 @router.get("/state")
 async def state(request: Request) -> dict:
     _auth(request)
     snapshot = await request.app.state.room_service.store.admin_snapshot()
-    character, persona = await _persona()
     service = request.app.state.room_service
+    character, persona, persona_source = await _persona(service)
     active_generation = service.active_generation("main")
     snapshot.update(
         {
             "character": character,
             "persona": persona,
+            "persona_source": persona_source,
             "online": await service.hub.online_count("main"),
             "tts_configured": service.speech.configured,
             "limits": dict(service.limits),
