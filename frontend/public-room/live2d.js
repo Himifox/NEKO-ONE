@@ -81,6 +81,8 @@
         view: canvas,
         autoStart: true,
         resizeTo: stage,
+        resolution: Math.max(window.devicePixelRatio || 1, 1),
+        autoDensity: true,
         transparent: true,
         backgroundAlpha: 0,
         antialias: true,
