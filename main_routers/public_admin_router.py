@@ -122,14 +122,10 @@ async def _persona(service) -> tuple[str, str, str, list[dict[str, str]]]:
     _runtime_character, effective = await service.engine.character()
     source = "builtin_default" if not stored or is_default_prompt(stored) else "custom"
     options: list[dict[str, str]] = []
-    for name, payload in characters.get("猫娘", {}).items():
-        prompt = str(
-            get_reserved(payload, "system_prompt", default="", legacy_keys=("system_prompt",))
-            or ""
-        )
+    for name in characters.get("猫娘", {}):
         label = name
-        if name.casefold() == "test" and (not prompt or is_default_prompt(prompt)):
-            label = "Lanlan（旧默认档案）"
+        if name.casefold() == "test":
+            label = "Lanlan - 旧默认档案"
         options.append({"id": name, "label": label})
     return current, effective, source, options
 
