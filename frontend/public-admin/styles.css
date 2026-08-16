@@ -172,7 +172,9 @@ select:disabled { color: #9a92a6; cursor: not-allowed; }
 .split-actions { justify-content: space-between; }
 .inline-state { min-height: 1.4em; margin: 13px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .error { min-height: 1.5em; margin: 13px 0 0; color: var(--danger); font-size: 12px; }
+.error:empty { min-height: 0; margin: 0; }
 .error::before { content: "!"; display: inline-block; width: 14px; height: 14px; margin-right: 6px; border-radius: 50%; color: #fff; background: var(--danger); text-align: center; font-size: 10px; font-weight: 800; line-height: 14px; }
+.error:empty::before { content: none; }
 
 /* Switches */
 .toggle-stack { display: grid; gap: 9px; }
@@ -259,12 +261,12 @@ select:disabled { color: #9a92a6; cursor: not-allowed; }
   .sidebar-brand { flex: 1; min-width: 0; padding: 0; }
   .sidebar-brand small { display: none; }
   .side-nav, .sidebar-footer { display: none; }
-  .nav-toggle { display: inline-flex; flex: 0 0 auto; width: 42px; height: 42px; align-items: center; justify-content: center; gap: 5px; padding: 0; border: 1px solid var(--line); border-radius: 11px; background: #f4f1f8; cursor: pointer; }
+  .nav-toggle { display: inline-flex; flex: 0 0 auto; flex-direction: column; width: 42px; height: 42px; align-items: center; justify-content: center; gap: 5px; padding: 0; border: 1px solid var(--line); border-radius: 11px; background: #f4f1f8; cursor: pointer; }
   .nav-toggle-bar { display: block; width: 18px; height: 2px; border-radius: 2px; background: var(--accent-strong); transition: transform .2s ease, opacity .2s ease; }
   .dashboard-layout.is-open .nav-toggle-bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
   .dashboard-layout.is-open .nav-toggle-bar:nth-child(2) { opacity: 0; }
   .dashboard-layout.is-open .nav-toggle-bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
-  .dashboard-layout.is-open .sidebar { right: auto; bottom: 0; width: min(320px, 86vw); height: 100dvh; flex-direction: column; align-items: stretch; padding: 28px 20px 22px; }
+  .dashboard-layout.is-open .sidebar { right: auto; bottom: 0; width: min(320px, 86vw); height: 100dvh; flex-direction: column; align-items: stretch; padding: 28px 20px 22px; overflow-y: auto; overscroll-behavior: contain; }
   .dashboard-layout.is-open .sidebar-brand { flex: 0 0 auto; padding: 0 8px; }
   .dashboard-layout.is-open .side-nav { display: grid; margin: 58px 0 24px; }
   .dashboard-layout.is-open .sidebar-footer { display: grid; margin-top: auto; }
