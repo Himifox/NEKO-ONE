@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import time
 from collections import deque
 from typing import Any
@@ -13,18 +12,44 @@ from .models import TurnCandidate
 
 class RoomDirector:
     def __init__(self, *, character_names: tuple[str, ...] = ("NEKO", "猫娘")):
-        escaped = [re.escape(name) for name in character_names if name]
-        self._mention_pattern = re.compile("|".join(escaped), re.IGNORECASE) if escaped else None
+        self.set_character_names(character_names)
         self._candidates: list[TurnCandidate] = []
         self._condition = asyncio.Condition()
         self._recent_targets: deque[str] = deque(maxlen=5)
         self._closed = False
 
+    def set_character_names(self, character_names: tuple[str, ...]) -> None:
+        """Refresh future direct-mention matching without dropping queued turns."""
+
+        self._mention_names = tuple(
+            dict.fromkeys(name.casefold() for name in character_names if name)
+        )
+
+    def _is_direct_mention(self, content: str) -> bool:
+        text = str(content or "").casefold()
+        for name in self._mention_names:
+            if f"@{name}" in text:
+                return True
+            # A short name such as "a" is only allowed after @.  Longer
+            # ASCII names retain natural mentions ("NEKO 你好") but must not
+            # occur inside a larger ASCII word. CJK names use explicit @
+            # syntax because Unicode word boundaries are ambiguous.
+            if len(name) < 2 or not name.isascii():
+                continue
+            start = text.find(name)
+            while start >= 0:
+                end = start + len(name)
+                before = text[start - 1] if start else ""
+                after = text[end] if end < len(text) else ""
+                if not (before.isascii() and (before.isalnum() or before == "_")) and not (
+                    after.isascii() and (after.isalnum() or after == "_")
+                ):
+                    return True
+                start = text.find(name, start + 1)
+        return False
+
     async def enqueue(self, candidate: TurnCandidate) -> None:
-        if self._mention_pattern is not None:
-            candidate.mentioned_neko = bool(
-                self._mention_pattern.search(candidate.message.content)
-            )
+        candidate.mentioned_neko = self._is_direct_mention(candidate.message.content)
         async with self._condition:
             self._candidates.append(candidate)
             self._condition.notify()

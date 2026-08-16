@@ -24,6 +24,10 @@ class PersonaUpdate(BaseModel):
     system_prompt: str = Field(min_length=1, max_length=MAX_PUBLIC_PERSONA_CHARS)
 
 
+class CharacterSelectionUpdate(BaseModel):
+    character: str = Field(min_length=1, max_length=50)
+
+
 class StatusUpdate(BaseModel):
     status: str
 
@@ -107,7 +111,7 @@ async def logout(request: Request, response: Response) -> dict:
     return {"ok": True}
 
 
-async def _persona(service) -> tuple[str, str, str]:
+async def _persona(service) -> tuple[str, str, str, list[dict[str, str]]]:
     manager = get_config_manager()
     characters = await manager.aload_characters()
     current = characters.get("当前猫娘") or next(iter(characters.get("猫娘", {})), "")
@@ -117,7 +121,13 @@ async def _persona(service) -> tuple[str, str, str]:
     )
     _runtime_character, effective = await service.engine.character()
     source = "builtin_default" if not stored or is_default_prompt(stored) else "custom"
-    return current, effective, source
+    options: list[dict[str, str]] = []
+    for name in characters.get("猫娘", {}):
+        label = name
+        if name.casefold() == "test":
+            label = "Lanlan - 旧默认档案"
+        options.append({"id": name, "label": label})
+    return current, effective, source, options
 
 
 @router.get("/state")
@@ -125,11 +135,14 @@ async def state(request: Request) -> dict:
     _auth(request)
     snapshot = await request.app.state.room_service.store.admin_snapshot()
     service = request.app.state.room_service
-    character, persona, persona_source = await _persona(service)
+    active_character, persona, persona_source, character_options = await _persona(service)
+    character, _prompt = await service.engine.character()
     active_generation = service.active_generation("main")
     snapshot.update(
         {
             "character": character,
+            "active_character": active_character,
+            "character_options": character_options,
             "persona": persona,
             "persona_source": persona_source,
             "online": await service.hub.online_count("main"),
@@ -195,6 +208,25 @@ async def update_avatar(payload: AvatarUpdate, request: Request) -> dict:
         "current": manifest,
         "models": avatar.installed_models(),
     }
+
+
+@router.put("/character")
+async def update_character(payload: CharacterSelectionUpdate, request: Request) -> dict:
+    _auth(request, write=True)
+    selected = payload.character.strip()
+    if not selected:
+        raise HTTPException(status_code=422, detail="invalid character")
+    manager = get_config_manager()
+    characters = await manager.aload_characters()
+    if selected not in characters.get("猫娘", {}):
+        raise HTTPException(status_code=404, detail="character is not installed")
+    characters["当前猫娘"] = selected
+    await manager.asave_characters(characters)
+    character = await request.app.state.room_service.refresh_character_identity()
+    await request.app.state.room_service.store.audit(
+        "character.select", "character", selected, {"display_name": character}
+    )
+    return {"ok": True, "character": character}
 
 
 @router.put("/persona")
@@ -288,7 +320,7 @@ async def message_status(message_id: str, payload: StatusUpdate, request: Reques
 async def add_room_fact(payload: RoomFactRequest, request: Request) -> dict:
     _auth(request, write=True)
     service = request.app.state.room_service
-    character, _ = await service.engine.character()
+    character = await service.engine.memory_character_name()
     result = await service.memory.add_reviewed_room_fact(
         character_name=character,
         room_id="main",
@@ -305,7 +337,7 @@ async def add_room_fact(payload: RoomFactRequest, request: Request) -> dict:
 async def forget_visitor(visitor_id: str, request: Request) -> dict:
     _auth(request, write=True)
     service = request.app.state.room_service
-    character, _ = await service.engine.character()
+    character = await service.engine.memory_character_name()
     result = await service.memory.forget_visitor(
         character_name=character, room_id="main", visitor_id=visitor_id
     )

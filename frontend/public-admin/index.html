@@ -6,7 +6,7 @@
     <meta name="referrer" content="same-origin" />
     <meta name="color-scheme" content="dark" />
     <title>NEKO 公共房间管理</title>
-    <link rel="stylesheet" href="/admin-assets/styles.css?v=4" />
+    <link rel="stylesheet" href="/admin-assets/styles.css?v=5" />
   </head>
   <body>
     <div class="ambient ambient-one" aria-hidden="true"></div>
@@ -220,9 +220,12 @@
               <div class="identity-grid">
                 <article class="panel persona-panel">
                   <div class="panel-heading">
-                    <div><p class="panel-kicker">PROTECTED PERSONA</p><h3>NEKO 核心人格</h3></div>
+                    <div><p class="panel-kicker">PROTECTED PERSONA</p><h3>公共角色人格</h3></div>
                     <span class="status-chip secure">管理员保护</span>
                   </div>
+                  <label class="field"><span>当前公共角色</span><select id="character-name"></select></label>
+                  <p class="panel-description">切换后立即使用该角色已有的 Persona 和独立记忆；旧 test 档案会以 Lanlan 显示。</p>
+                  <div class="panel-actions"><button id="save-character" class="button secondary" type="button">切换当前角色</button></div>
                   <p id="persona-source" class="panel-description"></p>
                   <textarea id="persona" rows="16" maxlength="12000" spellcheck="false"></textarea>
                   <div class="panel-actions"><button id="save-persona" class="button primary" type="button">保存 Persona</button></div>
@@ -308,6 +311,6 @@
     <script src="/runtime/pixi.min.js"></script>
     <script src="/runtime/pixi-live2d-display-cubism4.min.js"></script>
     <script src="/admin-assets/avatar-preview.js?v=2" defer></script>
-    <script src="/admin-assets/app.js?v=5" defer></script>
+    <script src="/admin-assets/app.js?v=6" defer></script>
   </body>
 </html>
