@@ -218,10 +218,10 @@ select:disabled { color: #9a92a6; cursor: not-allowed; }
 .avatar-config-card { display: flex; flex-direction: column; justify-content: center; }
 .avatar-config-card code { color: #6d28d9; overflow-wrap: anywhere; }
 .identity-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 14px; }
-.moderation-grid { display: grid; gap: 14px; }
+.moderation-grid, .data-lifecycle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .list-panel { padding-bottom: 10px; }
 .list-labels { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; padding: 0 12px 9px; color: #9a92a6; text-transform: uppercase; letter-spacing: .1em; font-size: 8px; }
-.table { min-width: 0; overflow: hidden; }
+.table { min-width: 0; max-height: 330px; overflow: auto; overscroll-behavior: contain; }
 .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 14px 12px; border-top: 1px solid var(--line); transition: background .14s ease; }
 .row:hover { background: rgba(124,58,237,.045); }
 .row-copy { min-width: 0; display: grid; gap: 5px; }
@@ -232,8 +232,10 @@ select:disabled { color: #9a92a6; cursor: not-allowed; }
 .small-button.danger { color: #b91c1c; background: rgba(220,38,38,.08); border-color: rgba(220,38,38,.16); }
 .small-button.danger:hover { background: rgba(220,38,38,.12); }
 .empty-state { padding: 34px 16px; border-top: 1px solid var(--line); color: #8f87a0; text-align: center; font-size: 11px; }
-.retention-grid { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 10px; }
-.audit-panel { margin-top: 14px; }
+.retention-grid { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 10px; }
+.retention-grid > :last-child { grid-column: 1 / -1; }
+.audit-panel { min-height: 100%; }
+.audit-table { max-height: 285px; }
 .audit-table .row { grid-template-columns: 1fr; }
 .audit-table .actions { display: none; }
 
@@ -244,7 +246,7 @@ select:disabled { color: #9a92a6; cursor: not-allowed; }
   .sidebar { padding-inline: 14px; }
   .workspace { padding-inline: 24px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  .avatar-grid, .identity-grid { grid-template-columns: 1fr; }
+  .avatar-grid, .identity-grid, .moderation-grid, .data-lifecycle-grid { grid-template-columns: 1fr; }
   .retention-grid { grid-template-columns: repeat(3, minmax(120px,1fr)); }
 }
 
