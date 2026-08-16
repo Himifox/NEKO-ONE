@@ -628,8 +628,9 @@ class PublicRoomService:
                 if visitor is None:
                     raise RuntimeError("target visitor disappeared")
             recent_messages = await self.store.list_messages(room_id, limit=40)
+            memory_character_name = await self.engine.memory_character_name()
             room_context = await self.memory.build_context(
-                character_name=await self.engine.memory_character_name(),
+                character_name=memory_character_name,
                 room_id=room_id,
                 target_visitor=visitor,
                 recent_messages=recent_messages,
@@ -751,7 +752,7 @@ class PublicRoomService:
             if not is_proactive:
                 self._spawn_background_task(
                     self._record_completed_turn(
-                        character_name=await self.engine.memory_character_name(),
+                        character_name=memory_character_name,
                         room_id=room_id,
                         visitor=visitor,
                         user_message=candidate.message,
