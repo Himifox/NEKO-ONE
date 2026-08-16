@@ -30,6 +30,7 @@
   const streamRow = document.getElementById("stream-row");
   const streamText = document.getElementById("stream-text");
   const soundToggle = document.getElementById("sound-toggle");
+  const timelineBottomTolerance = 48;
   const emotionTag = /<\s*(happy|sad|angry|neutral|surprised|surprise|开心|高兴|悲伤|难过|生气|愤怒|惊讶|平静|relaxed)\s*>/gi;
   const emotionAliases = {
     happy: "happy", 开心: "happy", 高兴: "happy",
@@ -160,8 +161,18 @@
     }
   }
 
+  function timelineIsAtLatest() {
+    return timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight
+      <= timelineBottomTolerance;
+  }
+
+  function scrollTimelineToLatest() {
+    timeline.scrollTop = timeline.scrollHeight;
+  }
+
   function renderMessage(message) {
     if (!message || state.rendered.has(message.id)) return;
+    const followLatest = timelineIsAtLatest();
     state.rendered.add(message.id);
     const article = document.createElement("article");
     article.className = "message";
@@ -179,7 +190,7 @@
     body.textContent = message.content || "";
     article.append(header, body);
     timeline.append(article);
-    timeline.scrollTop = timeline.scrollHeight;
+    if (followLatest) scrollTimelineToLatest();
   }
 
   function handleEvent(event) {
