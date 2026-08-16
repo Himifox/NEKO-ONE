@@ -9,10 +9,14 @@ from urllib.parse import urlparse
 from main_logic.omni_offline_client import OmniOfflineClient
 from utils.config_manager import get_config_manager
 
+from .avatar import split_emotion_tags
+
 
 DeltaCallback = Callable[[str], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
+
+MAX_PUBLIC_PERSONA_CHARS = 12000
 
 
 class ConversationEngine:
@@ -33,7 +37,7 @@ class ConversationEngine:
         base_prompt = base_prompt.replace("{LANLAN_NAME}", character_name).replace(
             "{MASTER_NAME}", master_name
         )
-        return character_name or "NEKO", base_prompt
+        return character_name or "NEKO", base_prompt[:MAX_PUBLIC_PERSONA_CHARS]
 
     async def readiness_snapshot(self) -> dict[str, object]:
         """Return only non-secret configuration readiness for the public probe."""
@@ -131,7 +135,8 @@ class ConversationEngine:
             chunks.clear()
             await stream_once()
             response = "".join(chunks).strip()
-            if response:
+            visible_response, _emotion = split_emotion_tags(response)
+            if visible_response:
                 return character_name, response
             if attempt == 0:
                 logger.warning("public-room model returned an empty response; retrying once")

@@ -671,6 +671,11 @@ class PublicRoomService:
                     ),
                     timeout=float(self.llm_timeout_seconds),
                 )
+                final_text, emotion = split_emotion_tags(raw_final_text)
+                if not final_text:
+                    raise EmptyModelResponseError(
+                        "model returned no visitor-visible text after retry"
+                    )
             except Exception as exc:
                 self._mark_dependency(
                     "llm", "degraded", self._generation_error_code(exc)
@@ -678,11 +683,6 @@ class PublicRoomService:
                 raise
             else:
                 self._mark_dependency("llm", "ready")
-            final_text, emotion = split_emotion_tags(raw_final_text)
-            if not final_text:
-                raise EmptyModelResponseError(
-                    "model returned no visitor-visible text after retry"
-                )
             # From this point forward, cancellation is cooperative-only. In
             # In particular, never cancel the PostgreSQL commit thread after
             # it has started and then mark the same turn as interrupted.
@@ -783,11 +783,12 @@ class PublicRoomService:
         except Exception as exc:
             logger.exception("public-room generation failed")
             async with self._generation_locks[room_id]:
+                error_code = self._generation_error_code(exc)
                 generation.phase = "failed"
                 await self.store.finish_turn(
                     turn_id,
                     status="failed",
-                    error_code=self._generation_error_code(exc),
+                    error_code=error_code,
                 )
                 await self._append_and_broadcast_event(
                     room_id,
@@ -795,7 +796,7 @@ class PublicRoomService:
                     {
                         "turn_id": turn_id,
                         "generation_id": generation.id,
-                        "reason": "generation_failed",
+                        "reason": error_code,
                     },
                 )
                 await self.hub.broadcast(
@@ -805,7 +806,7 @@ class PublicRoomService:
                         "server_time": utc_now(),
                         "payload": {
                             "generation_id": generation.id,
-                            "code": "generation_failed",
+                            "code": error_code,
                         },
                     },
                 )

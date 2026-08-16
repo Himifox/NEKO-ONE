@@ -368,11 +368,11 @@ def main() -> None:
                     }
                 )
                 llm_failure = _drain_until(failure_ws, "stream.failed")
-                assert llm_failure[-1]["payload"]["code"] == "generation_failed"
+                assert llm_failure[-1]["payload"]["code"] == "timeout"
                 assert any(
                     event.get("type") == "turn.interrupted"
                     and event.get("payload", {}).get("reason")
-                    == "generation_failed"
+                    == "timeout"
                     for event in llm_failure
                 )
                 dependency = _wait_for_dependency(

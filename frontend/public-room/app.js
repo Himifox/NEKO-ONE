@@ -285,9 +285,15 @@
         streamRow.hidden = true;
         state.rawStream = "";
         streamText.textContent = "";
-        queueState.textContent = payload.code === "generation_failed"
-          ? "回复服务暂时不可用，消息已保留，请稍后再试"
-          : "本次回复已中止";
+        queueState.textContent = ({
+          empty_response: "模型没有生成可显示的回复，请稍后再试",
+          timeout: "回复服务响应超时，消息已保留，请稍后再试",
+          network_error: "回复服务网络异常，消息已保留，请稍后再试",
+          upstream_runtime_error: "回复服务暂时不可用，消息已保留，请稍后再试",
+          invalid_response: "回复服务返回了无效内容，消息已保留，请稍后再试",
+          generation_error: "回复服务暂时不可用，消息已保留，请稍后再试",
+          generation_failed: "回复服务暂时不可用，消息已保留，请稍后再试",
+        })[payload.code] || "本次回复已中止";
         break;
       case "command.rejected":
         queueState.textContent = `发送失败：${payload.message || payload.code || "未知错误"}`;
