@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="same-origin" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light" />
     <title>NEKO 公共房间管理</title>
     <link rel="stylesheet" href="/admin-assets/styles.css?v=5" />
   </head>
@@ -49,7 +49,12 @@
 
       <section id="dashboard" hidden>
         <div class="dashboard-layout">
-          <aside class="sidebar">
+          <aside id="admin-sidebar" class="sidebar">
+            <button id="nav-toggle" class="nav-toggle" type="button" aria-expanded="false" aria-controls="admin-sidebar" aria-label="打开导航菜单">
+              <span class="nav-toggle-bar" aria-hidden="true"></span>
+              <span class="nav-toggle-bar" aria-hidden="true"></span>
+              <span class="nav-toggle-bar" aria-hidden="true"></span>
+            </button>
             <a class="brand-lockup sidebar-brand" href="#overview" aria-label="回到总览">
               <span class="brand-mark" aria-hidden="true">N</span>
               <span><strong>NEKO ONE</strong><small>ADMIN CONSOLE</small></span>
@@ -312,5 +317,6 @@
     <script src="/runtime/pixi-live2d-display-cubism4.min.js"></script>
     <script src="/admin-assets/avatar-preview.js?v=2" defer></script>
     <script src="/admin-assets/app.js?v=6" defer></script>
+    <script src="/admin-assets/admin-nav.js?v=2" defer></script>
   </body>
 </html>
