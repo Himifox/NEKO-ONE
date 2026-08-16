@@ -259,8 +259,8 @@ h1 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 10px currentColor;
+  background: currentcolor;
+  box-shadow: 0 0 10px currentcolor;
   transform: translateY(-50%);
 }
 .connection-state[data-state="online"] { border-color: rgba(112,229,170,.16); color: #70e5aa; background: rgba(112,229,170,.045); }
@@ -409,7 +409,7 @@ textarea:focus { border-color: rgba(176,112,232,.65); background: rgba(255,255,2
 #send-button:hover i { transform: translate(2px, -2px); }
 #send-button:focus-visible, .text-button:focus-visible { outline: 3px solid rgba(194,146,243,.2); outline-offset: 2px; }
 button:disabled, textarea:disabled { opacity: .45; cursor: not-allowed; transform: none !important; }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 @media (max-width: 980px) {
   body { overflow-y: auto; }
