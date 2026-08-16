@@ -206,6 +206,14 @@ class PublicRoomService:
         )
         await self._sync_proactive_task(room_id)
 
+    async def refresh_character_identity(self) -> str:
+        """Refresh direct mentions after the configured legacy character changes."""
+
+        name, _prompt = await self.engine.character()
+        for director in self.directors.values():
+            director.set_character_names(("NEKO", "猫娘", name))
+        return name
+
     async def submit_message(
         self,
         *,
@@ -369,7 +377,7 @@ class PublicRoomService:
             forget_failures = 0
             if stale:
                 try:
-                    character_name, _ = await self.engine.character()
+                    character_name = await self.engine.memory_character_name()
                 except Exception:
                     logger.exception(
                         "retention could not resolve character for visitor forget"
@@ -620,8 +628,9 @@ class PublicRoomService:
                 if visitor is None:
                     raise RuntimeError("target visitor disappeared")
             recent_messages = await self.store.list_messages(room_id, limit=40)
+            memory_character_name = await self.engine.memory_character_name()
             room_context = await self.memory.build_context(
-                character_name=(await self.engine.character())[0],
+                character_name=memory_character_name,
                 room_id=room_id,
                 target_visitor=visitor,
                 recent_messages=recent_messages,
@@ -743,7 +752,7 @@ class PublicRoomService:
             if not is_proactive:
                 self._spawn_background_task(
                     self._record_completed_turn(
-                        character_name=character_name,
+                        character_name=memory_character_name,
                         room_id=room_id,
                         visitor=visitor,
                         user_message=candidate.message,
