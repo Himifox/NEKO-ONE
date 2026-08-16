@@ -32,6 +32,16 @@
       "modifications": "none"
     },
     {
+      "path": "soullink-emotion-engine.min.js",
+      "name": "Soullink Emotion Engine",
+      "version": "0.1.0-beta.1",
+      "sha256": "7e66272a9de46b0fca471b76bfd89bc40e4aa9a96e8bb22d5642612c52b87ece",
+      "license": "MIT",
+      "license_path": "licenses/soullink-emotion-engine-MIT.txt",
+      "source": "https://registry.npmjs.org/@soullink-emotion/engine/-/engine-0.1.0-beta.1.tgz",
+      "modifications": "bundled as a minified IIFE with the repository's explicit NekoSoullinkEmotion global"
+    },
+    {
       "path": "live2dcubismcore.min.js",
       "name": "Live2D Cubism Core for Web",
       "version": "bundled upstream build; exact release not proven",

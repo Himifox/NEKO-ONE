@@ -136,6 +136,7 @@ def main() -> None:
             assert secret_name not in frontend, f"frontend exposes forbidden token: {secret_name}"
         page_html = (ROOT / "frontend" / "public-room" / "index.html").read_text("utf-8")
         assert "pixi-live2d-display-cubism4.min.js" in page_html
+        assert "soullink-emotion-engine.min.js" in page_html
         assert "runtime/live2d.min.js" not in page_html
 
         from fastapi.testclient import TestClient
@@ -157,6 +158,9 @@ def main() -> None:
             )
             assert display_runtime.status_code == 200
             assert "Copyright (c) 2020 Guan" in display_runtime.text[:300]
+            soullink_runtime = client.get("/runtime/soullink-emotion-engine.min.js")
+            assert soullink_runtime.status_code == 200
+            assert "NekoSoullinkEmotion" in soullink_runtime.text[:500]
             assert client.get("/runtime/live2d.min.js").status_code == 404
             display_license = client.get(
                 "/runtime/licenses/pixi-live2d-display-MIT.txt"

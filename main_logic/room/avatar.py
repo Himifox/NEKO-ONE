@@ -29,6 +29,8 @@ EMOTION_ALIASES = {
 }
 EMOTION_TAG = re.compile(r"<\s*([^<>]{1,24})\s*>", re.IGNORECASE)
 MODEL_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+SOULLINK_PROFILE_FILE = "soullink.profile.json"
+SOULLINK_MOTION_STYLES = frozenset({"natural", "lively", "calm", "shy"})
 
 
 def split_emotion_tags(text: str) -> tuple[str, str]:
@@ -127,6 +129,31 @@ class PublicAvatar:
     def prepare(self) -> None:
         self.assets_root.mkdir(parents=True, exist_ok=True)
 
+    def _soullink_requested(self) -> bool:
+        return os.environ.get("NEKO_PUBLIC_SOULLINK_ENABLED", "0").strip() == "1"
+
+    def _soullink_motion_style(self) -> str:
+        style = os.environ.get("NEKO_PUBLIC_SOULLINK_MOTION_STYLE", "natural").strip()
+        return style if style in SOULLINK_MOTION_STYLES else "natural"
+
+    def _soullink_profile(self, model_root: Path) -> dict[str, Any] | None:
+        """Return only a small, structurally valid public Soullink profile."""
+
+        profile_path = model_root / SOULLINK_PROFILE_FILE
+        try:
+            if (
+                not profile_path.resolve().is_relative_to(model_root)
+                or not profile_path.is_file()
+                or profile_path.stat().st_size > 512 * 1024
+            ):
+                return None
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        if not isinstance(profile, dict) or not isinstance(profile.get("parameterMap"), dict):
+            return None
+        return profile
+
     def _reference_path(
         self, model_root: Path, value: Any
     ) -> PurePosixPath | None:
@@ -189,6 +216,8 @@ class PublicAvatar:
                         return None
                     if "Sound" in motion and not include(motion["Sound"]):
                         return None
+            if self._soullink_requested() and self._soullink_profile(model_root):
+                assets.add(SOULLINK_PROFILE_FILE)
             return assets
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
@@ -256,6 +285,12 @@ class PublicAvatar:
         model_path = self.model_path
         model_exists = bool(model_path and model_path.is_file())
         enabled = bool(model_path and model_exists and self._model_assets(model_path))
+        soullink_profile = (
+            self._soullink_profile(model_path.parent)
+            if model_path is not None and model_exists
+            else None
+        )
+        soullink_enabled = bool(enabled and self._soullink_requested() and soullink_profile)
         if self.configuration_error:
             status = "invalid_configuration"
         elif not self.model_name:
@@ -276,4 +311,20 @@ class PublicAvatar:
                 else None
             ),
             "emotions": ["neutral", "happy", "sad", "angry", "surprised"],
+            "soullink": {
+                "enabled": soullink_enabled,
+                "status": (
+                    "ready"
+                    if soullink_enabled
+                    else "disabled"
+                    if not self._soullink_requested()
+                    else "missing_profile"
+                ),
+                "profile_url": (
+                    f"/live2d-assets/{self.model_name}/{SOULLINK_PROFILE_FILE}"
+                    if soullink_enabled
+                    else None
+                ),
+                "motion_style": self._soullink_motion_style(),
+            },
         }

@@ -11,6 +11,9 @@ See LICENSE for the full text. Third-party components retain their own terms:
   MIT License; see static/libs/licenses/pixi.js-MIT.txt.
 - pixi-live2d-display 0.5.0-beta, Copyright (c) 2020 Guan.
   MIT License; see static/libs/licenses/pixi-live2d-display-MIT.txt.
+- Soullink Emotion Engine 0.1.0-beta.1, Copyright (c) 2026 Soullink Emotion
+  contributors. MIT License; see
+  static/libs/licenses/soullink-emotion-engine-MIT.txt.
 - Live2D Cubism Core, Copyright (c) 2019 Live2D Inc.
   Proprietary Redistributable Code under the agreement linked in the file
   header: https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html

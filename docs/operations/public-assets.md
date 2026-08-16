@@ -8,12 +8,13 @@
 
 仓库曾包含一个没有来源、作者或许可文件的 `yui-lolita` 模型压缩包，以及一个与页面接口不匹配、没有授权标头的旧 Live2D 运行库。二者已经永久删除，不能因为“原项目能运行”就推定拥有公网再分发权。
 
-当前公开发行物只包含三项浏览器运行库：
+当前公开发行物只包含四项浏览器运行库：
 
 | 资产 | 版本 | 许可 | 处理 |
 | --- | --- | --- | --- |
 | PixiJS | 7.4.3 | MIT | npm 官方包内容与仓库 SHA-256 一致，附完整 MIT 文本 |
 | pixi-live2d-display Cubism 4 bundle | 0.5.0-beta | MIT | 来自 npm 官方包；把 `process.env.NODE_ENV` 固化为 production，并补充指向随包 MIT 文本的分发标头 |
+| Soullink Emotion Engine | 0.1.0-beta.1 | MIT | 从 npm 官方包固定版本构建为 `NekoSoullinkEmotion` 浏览器全局，仅在运营方显式开启且模型 profile 通过校验后使用 |
 | Live2D Cubism Core for Web | 文件内未提供可证明的精确版本 | Live2D Proprietary Software License Agreement | 文件标头明确标为 Redistributable Code；保留标头、精确 SHA-256 与协议链接 |
 
 权威机器清单位于 `static/libs/manifest.json`。项目自身 Apache-2.0 许可证不会覆盖或改写上述第三方条款。
@@ -48,6 +49,25 @@ descriptor 资产校验的候选项，选择结果保存在 PostgreSQL，重启�
 NEKO_PUBLIC_LIVE2D_MODEL_NAME=<model-name>
 NEKO_PUBLIC_LIVE2D_MODEL_FILE=<model-file>.model3.json
 ```
+
+## 可选 Soullink 表演层
+
+Soullink 只是在浏览器本地将既有情绪/语音状态持续映射到 Cubism 参数；它不读取私有记忆、服务端密钥或未在 descriptor allowlist 中声明的模型文件。为某个已授权模型生成 profile 后，才显式开启：
+
+```powershell
+npm --prefix frontend/soullink install
+npm --prefix frontend/soullink run profile -- <model-name>
+```
+
+随后在私有环境文件中设置：
+
+```dotenv
+NEKO_PUBLIC_SOULLINK_ENABLED=1
+NEKO_PUBLIC_SOULLINK_MOTION_STYLE=natural
+```
+
+可用动作风格为 `natural`、`lively`、`calm` 和 `shy`。生成的
+`soullink.profile.json` 与模型一起保留在私有数据目录；仅当以上开关为 `1` 且 profile 是小于 512 KiB、包含 `parameterMap` 的 JSON 对象时，当前启用模型的 profile 才会被加入 `/live2d-assets` allowlist。
 
 数据库中已有后台选择时会覆盖环境变量。名称和 descriptor 只能是安全文件名。服务端会解析 descriptor，拒绝路径逃逸，并确认 Moc、纹理及声明的 Physics、Pose、UserData、DisplayInfo、Expression、Motion、Sound 文件都存在；失败时保持文字聊天可用并显示明确占位状态。
 

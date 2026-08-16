@@ -139,6 +139,7 @@ def main() -> None:
         "/runtime/live2dcubismcore.min.js",
         "/runtime/pixi.min.js",
         "/runtime/pixi-live2d-display-cubism4.min.js",
+        "/runtime/soullink-emotion-engine.min.js",
         "/assets/live2d.js",
     )
     positions = [page.index(token) for token in ordered]
@@ -212,6 +213,9 @@ def main() -> None:
             "{}", encoding="utf-8"
         )
         (model_root / "private-note.txt").write_text("not public", encoding="utf-8")
+        (model_root / "soullink.profile.json").write_text(
+            json.dumps({"schemaVersion": 2, "parameterMap": {}}), encoding="utf-8"
+        )
         descriptor = {
             "FileReferences": {
                 "Moc": "model.moc3",
@@ -232,10 +236,12 @@ def main() -> None:
             {
                 "NEKO_PUBLIC_LIVE2D_MODEL_NAME": "neko",
                 "NEKO_PUBLIC_LIVE2D_MODEL_FILE": "neko.model3.json",
+                "NEKO_PUBLIC_SOULLINK_ENABLED": "1",
             },
         ):
             avatar = PublicAvatar(data_dir=data_dir)
             assert avatar.manifest()["enabled"] is True
+            assert avatar.manifest()["soullink"]["enabled"] is True
             installed = avatar.installed_models()
             assert installed == [
                 {
@@ -252,6 +258,7 @@ def main() -> None:
             "neko/textures/00.png",
             "neko/motions/happy.motion3.json",
             "neko/expressions/smile.exp3.json",
+            "neko/soullink.profile.json",
         }
         assert "neko/private-note.txt" not in allowed
         avatar.disable()
@@ -279,15 +286,17 @@ def main() -> None:
     environment = (ROOT / ".env.public.example").read_text("utf-8")
     assert "NEKO_PUBLIC_LIVE2D_MODEL_NAME=\n" in environment
     assert "NEKO_PUBLIC_LIVE2D_MODEL_FILE=\n" in environment
+    assert "NEKO_PUBLIC_SOULLINK_ENABLED=0" in environment
     notice = (ROOT / "NOTICE").read_text("utf-8")
     for token in (
         "PixiJS 7.4.3",
         "pixi-live2d-display 0.5.0-beta",
         "Live2D Cubism Core",
+        "Soullink Emotion Engine 0.1.0-beta.1",
     ):
         assert token in notice
     print(
-        "public asset verification passed: 3 audited runtimes, "
+        "public asset verification passed: 4 audited runtimes, "
         "no bundled model, voice, or font; frontend DOM contracts valid"
     )
 
