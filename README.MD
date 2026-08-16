@@ -157,16 +157,6 @@ uv run --env-file .env.public neko-public   # 终端二：公共房间
 
 `scripts/` 下提供确定性验证脚本，用假模型/记忆/TTS 覆盖多人连接、消息序号、幂等发送、断线续传、管理审核、封禁、限额、应急控制、数据清理、降级与恢复，以及容量、备份恢复、资产清单和安全边界。真实供应商不在普通回归中调用。完整命令与门槛见[容量与稳定性手册](docs/operations/capacity-and-soak.md)、[备份恢复手册](docs/operations/backup-and-restore.md)和[真实供应商验收手册](docs/operations/provider-acceptance.md)。
 
-## 仓库边界
-
-### 保留
-
-文本 LLM、多供应商适配、流式输出、Live2D、情绪标签、TTS、分层记忆、Persona、公共房间协议和私有管理后台。
-
-### 明确不包含
-
-Agent Server、插件市场、浏览器/电脑控制、Steam、云存档、游戏、Galgame、ASR、实时语音输入、VRM、MMD、PNGTuber、桌面启动器及直播平台礼物逻辑。
-
 ## 当前版本
 
 `v0.1` 是可部署的单房间基线，设计目标为 **10–50 人的小型公共房间**。当前使用游客身份、单实例和 PostgreSQL，不依赖 Redis；账号体系、多实例协调、直播平台接入以及公开声音配置不在第一版范围内。后续阶段见[产品路线图](docs/roadmap.md)。
