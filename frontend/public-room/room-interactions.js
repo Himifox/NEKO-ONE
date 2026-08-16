@@ -9,7 +9,7 @@
   const layer = document.getElementById("like-burst-layer");
   const badge = document.getElementById("like-count");
 
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+  const motionQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
   let likeTotal = 0;
 
   function readFollowed() {
@@ -49,7 +49,12 @@
       item.style.setProperty("--dur", `${(1.1 + Math.random() * 0.9).toFixed(2)}s`);
       item.style.setProperty("--delay", `${(Math.random() * 0.18).toFixed(2)}s`);
       layer.append(item);
-      item.addEventListener("animationend", () => item.remove(), { once: true });
+      const remove = () => {
+        clearTimeout(timer);
+        item.remove();
+      };
+      const timer = setTimeout(remove, 3000);
+      item.addEventListener("animationend", remove, { once: true });
     }
   }
 
@@ -69,7 +74,7 @@
         badge.textContent = String(likeTotal);
         badge.hidden = false;
       }
-      if (reduceMotion) return;
+      if (motionQuery?.matches) return;
       spawnBurst();
     });
   }
