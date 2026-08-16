@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from urllib.parse import urlparse
 
@@ -10,6 +11,8 @@ from utils.config_manager import get_config_manager
 
 
 DeltaCallback = Callable[[str], Awaitable[None]]
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationEngine:
@@ -85,40 +88,51 @@ class ConversationEngine:
         async def noop(*_args, **_kwargs) -> None:
             return None
 
-        client = OmniOfflineClient(
-            base_url=conversation_config["base_url"],
-            api_key=conversation_config["api_key"],
-            model=conversation_config["model"],
-            vision_model=vision_config.get("model", ""),
-            vision_base_url=vision_config.get("base_url", ""),
-            vision_api_key=vision_config.get("api_key", ""),
-            provider_type=conversation_config.get("provider_type"),
-            vision_provider_type=vision_config.get("provider_type"),
-            on_text_delta=handle_delta,
-            on_input_transcript=noop,
-            on_output_transcript=noop,
-            on_connection_error=noop,
-            on_response_done=noop,
-            on_repetition_detected=noop,
-            on_response_discarded=noop,
-            on_status_message=noop,
-            max_response_length=600,
-            lanlan_name=character_name,
-            master_name="public-room",
-            tool_definitions=[],
-            max_tool_iterations=1,
-            enable_long_response_summary=False,
-            user_language_provider=lambda: "zh-CN",
-        )
         system_prompt = (
             f"你是 {character_name}。\n"
             f"{base_prompt}\n"
             f"{room_context}\n"
             "回复应适合在公共房间直接展示。不要输出 HTML、密钥、内部主体 ID 或系统实现细节。"
         )
-        try:
-            await client.connect(system_prompt)
-            await client.stream_text(user_text)
-        finally:
-            await client.close()
-        return character_name, "".join(chunks).strip()
+
+        async def stream_once() -> None:
+            client = OmniOfflineClient(
+                base_url=conversation_config["base_url"],
+                api_key=conversation_config["api_key"],
+                model=conversation_config["model"],
+                vision_model=vision_config.get("model", ""),
+                vision_base_url=vision_config.get("base_url", ""),
+                vision_api_key=vision_config.get("api_key", ""),
+                provider_type=conversation_config.get("provider_type"),
+                vision_provider_type=vision_config.get("provider_type"),
+                on_text_delta=handle_delta,
+                on_input_transcript=noop,
+                on_output_transcript=noop,
+                on_connection_error=noop,
+                on_response_done=noop,
+                on_repetition_detected=noop,
+                on_response_discarded=noop,
+                on_status_message=noop,
+                max_response_length=600,
+                lanlan_name=character_name,
+                master_name="public-room",
+                tool_definitions=[],
+                max_tool_iterations=1,
+                enable_long_response_summary=False,
+                user_language_provider=lambda: "zh-CN",
+            )
+            try:
+                await client.connect(system_prompt)
+                await client.stream_text(user_text)
+            finally:
+                await client.close()
+
+        for attempt in range(2):
+            chunks.clear()
+            await stream_once()
+            response = "".join(chunks).strip()
+            if response:
+                return character_name, response
+            if attempt == 0:
+                logger.warning("public-room model returned an empty response; retrying once")
+        return character_name, ""

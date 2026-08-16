@@ -378,7 +378,7 @@ def main() -> None:
                 dependency = _wait_for_dependency(
                     app.state.room_service, "llm", "degraded"
                 )
-                assert dependency["error_code"] == "TimeoutError"
+                assert dependency["error_code"] == "timeout"
 
                 app.state.room_service.engine.generate = fake_generate
                 app.state.room_service.llm_timeout_seconds = 120

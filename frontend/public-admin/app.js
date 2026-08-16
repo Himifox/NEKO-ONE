@@ -99,6 +99,9 @@
     document.getElementById("metric-messages").textContent = String(state.totals.messages ?? 0);
     document.getElementById("metric-generation").textContent = state.active_generation ? "生成中" : "空闲";
     document.getElementById("persona").value = state.persona || "";
+    document.getElementById("persona-source").textContent = state.persona_source === "builtin_default"
+      ? "当前展示的是内置默认人格；保存后会将它作为此角色的自定义人格。"
+      : "当前展示的是运行时实际使用的自定义人格。";
     document.getElementById("max-message-chars").value = state.limits.max_message_chars;
     document.getElementById("messages-per-window").value = state.limits.messages_per_window;
     document.getElementById("window-seconds").value = state.limits.window_seconds;
