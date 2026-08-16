@@ -4,89 +4,262 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="same-origin" />
+    <meta name="color-scheme" content="dark" />
     <title>NEKO 公共房间管理</title>
-    <link rel="stylesheet" href="/admin-assets/styles.css" />
+    <link rel="stylesheet" href="/admin-assets/styles.css?v=2" />
   </head>
   <body>
-    <main>
-      <section id="login-card" class="card login-card">
-        <p class="eyebrow">PRIVATE ADMIN</p>
-        <h1>NEKO 房间管理</h1>
-        <form id="login-form">
-          <label for="admin-password">管理密码</label>
-          <input id="admin-password" type="password" minlength="12" required autocomplete="current-password" />
-          <button type="submit">登录</button>
-        </form>
-        <p id="login-error" class="error" role="alert"></p>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <main class="admin-app">
+      <section id="login-card" class="login-card">
+        <div class="login-intro">
+          <div class="brand-lockup">
+            <span class="brand-mark" aria-hidden="true">N</span>
+            <span><strong>NEKO ONE</strong><small>ROOM OPERATIONS</small></span>
+          </div>
+          <div class="login-copy">
+            <span class="security-badge"><span></span> 私有管理端</span>
+            <h1>让公共房间始终<br />保持从容。</h1>
+            <p>集中管理 NEKO 的人格、房间节奏、访客治理与数据生命周期。</p>
+          </div>
+          <ul class="login-points" aria-label="安全特性">
+            <li>管理员会话与 CSRF 双重保护</li>
+            <li>访客内容不能直接写入 Persona</li>
+            <li>敏感供应商配置不在此页面返回</li>
+          </ul>
+        </div>
+
+        <div class="login-panel">
+          <p class="eyebrow">CONTROL ACCESS</p>
+          <h2>进入值班控制台</h2>
+          <p class="muted">使用服务器端配置的管理密码继续。</p>
+          <form id="login-form" class="form-stack">
+            <label class="field" for="admin-password">
+              <span>管理密码</span>
+              <input id="admin-password" type="password" minlength="12" required autocomplete="current-password" autofocus />
+            </label>
+            <button type="submit" class="primary full-width">安全登录</button>
+          </form>
+          <p id="login-error" class="error" role="alert"></p>
+          <p class="login-footnote">仅限受信任设备。操作将写入审计日志。</p>
+        </div>
       </section>
 
       <section id="dashboard" hidden>
-        <header class="topbar">
-          <div><p class="eyebrow">PRIVATE ADMIN</p><h1>NEKO 房间管理</h1></div>
-          <div><span id="summary"></span><button id="refresh">刷新</button><button id="logout" class="ghost">退出</button></div>
-        </header>
+        <div class="dashboard-layout">
+          <aside class="sidebar">
+            <a class="brand-lockup sidebar-brand" href="#overview" aria-label="回到总览">
+              <span class="brand-mark" aria-hidden="true">N</span>
+              <span><strong>NEKO ONE</strong><small>ADMIN CONSOLE</small></span>
+            </a>
 
-        <div class="grid">
-          <section class="card wide">
-            <h2>受保护 Persona</h2>
-            <p class="hint">只有管理员可写；访客记忆不会自动进入这里。</p>
-            <textarea id="persona" rows="14" maxlength="50000"></textarea>
-            <button id="save-persona">保存 Persona</button>
-          </section>
+            <nav class="side-nav" aria-label="管理区域">
+              <a href="#overview"><span>01</span>运行总览</a>
+              <a href="#room-operations"><span>02</span>房间控制</a>
+              <a href="#identity-memory"><span>03</span>人格与记忆</a>
+              <a href="#moderation"><span>04</span>内容治理</a>
+              <a href="#data-lifecycle"><span>05</span>数据生命周期</a>
+            </nav>
 
-          <section class="card">
-            <h2>审核后写入房间记忆</h2>
-            <textarea id="room-fact" rows="5" maxlength="4000" placeholder="经审核、允许全房间召回的事实"></textarea>
-            <label>重要度 <input id="fact-importance" type="number" min="1" max="10" value="5" /></label>
-            <button id="add-fact">写入共享记忆</button>
-          </section>
-
-          <section class="card">
-            <h2>用量与输入限制</h2>
-            <label>单条最大字符数 <input id="max-message-chars" type="number" min="100" max="4000" /></label>
-            <label>窗口内消息数 <input id="messages-per-window" type="number" min="1" max="20" /></label>
-            <label>窗口秒数 <input id="window-seconds" type="number" min="1" max="300" /></label>
-            <button id="save-limits">保存限制</button>
-          </section>
-
-          <section class="card">
-            <h2>房间应急控制</h2>
-            <p class="hint">暂停会中止当前回复；只读仅阻止新消息；主动主持由服务器唯一计时器执行。</p>
-            <label class="toggle"><input id="room-paused" type="checkbox" /> 暂停房间</label>
-            <label class="toggle"><input id="room-read-only" type="checkbox" /> 只读模式</label>
-            <label class="toggle"><input id="proactive-enabled" type="checkbox" /> 允许主动主持</label>
-            <button id="save-controls">保存房间控制</button>
-            <button id="cancel-generation" class="danger">取消当前回复</button>
-            <p id="generation-state" class="hint"></p>
-          </section>
-
-          <section class="card wide">
-            <h2>依赖运行状态</h2>
-            <p class="hint">这里只显示无密钥的运行结果；状态会随最近一次真实调用更新。</p>
-            <div id="dependency-state" class="dependency-grid"></div>
-          </section>
-
-          <section class="card wide">
-            <h2>数据保留与清理</h2>
-            <p class="hint">访客保留期不会短于消息保留期；只有 Memory 遗忘成功后才删除本地访客身份。</p>
-            <div class="retention-grid">
-              <label>消息/事件（天）<input id="message-retention-days" type="number" min="1" max="3650" /></label>
-              <label>访客/记忆（天）<input id="visitor-retention-days" type="number" min="1" max="3650" /></label>
-              <label>审计日志（天）<input id="audit-retention-days" type="number" min="7" max="3650" /></label>
-              <label>共享语音（小时）<input id="speech-retention-hours" type="number" min="1" max="8760" /></label>
-              <label>清理周期（分钟）<input id="cleanup-interval-minutes" type="number" min="5" max="1440" /></label>
+            <div class="sidebar-footer">
+              <div class="private-state"><span></span><div><strong>私有控制面</strong><small>不会暴露供应商密钥</small></div></div>
+              <button id="logout" class="button secondary full-width" type="button">退出管理会话</button>
             </div>
-            <span class="actions"><button id="save-retention">保存保留策略</button><button id="run-retention" class="danger">立即执行清理</button></span>
-            <p id="cleanup-state" class="hint"></p>
-          </section>
+          </aside>
 
-          <section class="card wide"><h2>访客与封禁</h2><div id="visitors" class="table"></div></section>
-          <section class="card wide"><h2>消息审核</h2><div id="messages" class="table"></div></section>
-          <section class="card wide"><h2>审计日志</h2><div id="audit" class="table"></div></section>
+          <div class="workspace">
+            <header class="topbar">
+              <div>
+                <p class="eyebrow">LIVE ROOM OPERATIONS</p>
+                <h1>公共房间控制台</h1>
+                <p id="summary" class="summary">正在读取房间状态…</p>
+              </div>
+              <div class="topbar-actions">
+                <a class="button secondary" href="/" target="_blank" rel="noopener">查看房间</a>
+                <button id="refresh" class="button primary" type="button">刷新状态</button>
+              </div>
+            </header>
+
+            <p id="notice" class="notice" role="status"></p>
+
+            <section id="overview" class="console-section">
+              <div class="section-heading">
+                <div><p class="section-index">01 / OVERVIEW</p><h2>运行总览</h2></div>
+                <p>先判断房间和依赖是否健康，再进行任何人工干预。</p>
+              </div>
+
+              <div class="metric-grid">
+                <article class="metric-card metric-accent">
+                  <span class="metric-label"><i></i>当前在线</span>
+                  <strong id="metric-online">—</strong>
+                  <small>实时连接访客</small>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">累计访客</span>
+                  <strong id="metric-visitors">—</strong>
+                  <small>已建立稳定身份</small>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">房间消息</span>
+                  <strong id="metric-messages">—</strong>
+                  <small>当前保留窗口</small>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">生成任务</span>
+                  <strong id="metric-generation" class="metric-status">—</strong>
+                  <small>同一时刻仅允许一个</small>
+                </article>
+              </div>
+
+              <article class="panel panel-wide">
+                <div class="panel-heading">
+                  <div><p class="panel-kicker">DEPENDENCIES</p><h3>依赖运行状态</h3></div>
+                  <p>仅显示脱敏后的最近调用结果。</p>
+                </div>
+                <div id="dependency-state" class="dependency-grid"></div>
+              </article>
+            </section>
+
+            <section id="room-operations" class="console-section">
+              <div class="section-heading">
+                <div><p class="section-index">02 / ROOM</p><h2>房间控制</h2></div>
+                <p>应急控制立即影响访客体验；保存前确认当前值班意图。</p>
+              </div>
+
+              <div class="panel-grid">
+                <article class="panel control-panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">LIVE CONTROLS</p><h3>应急控制</h3></div>
+                    <span class="status-chip">主房间</span>
+                  </div>
+                  <div class="toggle-stack">
+                    <label class="switch-row">
+                      <span><strong>暂停房间</strong><small>停止新回复，并取消当前生成</small></span>
+                      <input id="room-paused" type="checkbox" /><i aria-hidden="true"></i>
+                    </label>
+                    <label class="switch-row">
+                      <span><strong>只读模式</strong><small>保留浏览，拒绝访客新消息</small></span>
+                      <input id="room-read-only" type="checkbox" /><i aria-hidden="true"></i>
+                    </label>
+                    <label class="switch-row">
+                      <span><strong>主动主持</strong><small>由服务器唯一 RoomDirector 触发</small></span>
+                      <input id="proactive-enabled" type="checkbox" /><i aria-hidden="true"></i>
+                    </label>
+                  </div>
+                  <div class="panel-actions">
+                    <button id="save-controls" class="button primary" type="button">保存房间控制</button>
+                    <button id="cancel-generation" class="button danger" type="button">取消当前回复</button>
+                  </div>
+                  <p id="generation-state" class="inline-state"></p>
+                </article>
+
+                <article class="panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">GUARDRAILS</p><h3>输入与频率限制</h3></div>
+                  </div>
+                  <div class="field-grid">
+                    <label class="field"><span>单条最大字符数</span><input id="max-message-chars" type="number" min="100" max="4000" /></label>
+                    <label class="field"><span>窗口内消息数</span><input id="messages-per-window" type="number" min="1" max="20" /></label>
+                    <label class="field"><span>窗口秒数</span><input id="window-seconds" type="number" min="1" max="300" /></label>
+                  </div>
+                  <div class="panel-actions"><button id="save-limits" class="button primary" type="button">保存限制</button></div>
+                </article>
+              </div>
+            </section>
+
+            <section id="identity-memory" class="console-section">
+              <div class="section-heading">
+                <div><p class="section-index">03 / IDENTITY</p><h2>人格与记忆</h2></div>
+                <p>Persona 是受保护的身份根；访客内容只能经过人工审核后进入共享记忆。</p>
+              </div>
+
+              <div class="identity-grid">
+                <article class="panel persona-panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">PROTECTED PERSONA</p><h3>NEKO 核心人格</h3></div>
+                    <span class="status-chip secure">管理员保护</span>
+                  </div>
+                  <textarea id="persona" rows="16" maxlength="50000" spellcheck="false"></textarea>
+                  <div class="panel-actions"><button id="save-persona" class="button primary" type="button">保存 Persona</button></div>
+                </article>
+
+                <article class="panel memory-panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">REVIEWED MEMORY</p><h3>写入房间共享记忆</h3></div>
+                  </div>
+                  <p class="panel-description">仅填写已经核验、允许所有访客在未来召回的事实。</p>
+                  <label class="field"><span>共享事实</span><textarea id="room-fact" rows="8" maxlength="4000" placeholder="例如：NEKO 公共房间的固定活动时间是……"></textarea></label>
+                  <label class="field compact-field"><span>重要度（1–10）</span><input id="fact-importance" type="number" min="1" max="10" value="5" /></label>
+                  <div class="panel-actions"><button id="add-fact" class="button primary" type="button">审核并写入记忆</button></div>
+                </article>
+              </div>
+            </section>
+
+            <section id="moderation" class="console-section">
+              <div class="section-heading">
+                <div><p class="section-index">04 / MODERATION</p><h2>内容治理</h2></div>
+                <p>访客身份、长期记忆和公开消息分别处理，避免误删或越权。</p>
+              </div>
+
+              <div class="moderation-grid">
+                <article class="panel list-panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">VISITORS</p><h3>访客与封禁</h3></div>
+                    <span class="status-chip">最近访客</span>
+                  </div>
+                  <div class="list-labels"><span>访客</span><span>状态与操作</span></div>
+                  <div id="visitors" class="table"></div>
+                </article>
+
+                <article class="panel list-panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">MESSAGES</p><h3>消息审核</h3></div>
+                    <span class="status-chip">最近消息</span>
+                  </div>
+                  <div class="list-labels"><span>消息</span><span>公开状态</span></div>
+                  <div id="messages" class="table"></div>
+                </article>
+              </div>
+            </section>
+
+            <section id="data-lifecycle" class="console-section">
+              <div class="section-heading">
+                <div><p class="section-index">05 / DATA</p><h2>数据生命周期</h2></div>
+                <p>调整保留周期属于高影响操作；立即清理会永久删除到期数据。</p>
+              </div>
+
+              <article class="panel panel-wide retention-panel">
+                <div class="panel-heading">
+                  <div><p class="panel-kicker">RETENTION POLICY</p><h3>保留与清理策略</h3></div>
+                  <span class="status-chip warning">谨慎操作</span>
+                </div>
+                <div class="retention-grid">
+                  <label class="field"><span>消息 / 事件（天）</span><input id="message-retention-days" type="number" min="1" max="3650" /></label>
+                  <label class="field"><span>访客 / 记忆（天）</span><input id="visitor-retention-days" type="number" min="1" max="3650" /></label>
+                  <label class="field"><span>审计日志（天）</span><input id="audit-retention-days" type="number" min="7" max="3650" /></label>
+                  <label class="field"><span>共享语音（小时）</span><input id="speech-retention-hours" type="number" min="1" max="8760" /></label>
+                  <label class="field"><span>清理周期（分钟）</span><input id="cleanup-interval-minutes" type="number" min="5" max="1440" /></label>
+                </div>
+                <div class="panel-actions split-actions">
+                  <button id="save-retention" class="button primary" type="button">保存保留策略</button>
+                  <button id="run-retention" class="button danger" type="button">立即执行清理</button>
+                </div>
+                <p id="cleanup-state" class="inline-state"></p>
+              </article>
+
+              <article class="panel panel-wide audit-panel">
+                <div class="panel-heading">
+                  <div><p class="panel-kicker">AUDIT TRAIL</p><h3>最近审计日志</h3></div>
+                </div>
+                <div id="audit" class="table audit-table"></div>
+              </article>
+            </section>
+          </div>
         </div>
-        <p id="notice" role="status"></p>
       </section>
     </main>
-    <script src="/admin-assets/app.js" defer></script>
+    <script src="/admin-assets/app.js?v=2" defer></script>
   </body>
 </html>

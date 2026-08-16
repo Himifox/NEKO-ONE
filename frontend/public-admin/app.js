@@ -70,20 +70,33 @@
     element.textContent = label;
     element.dataset.action = action;
     element.dataset.id = id;
-    if (danger) element.className = "danger";
+    element.className = danger ? "danger small-button" : "secondary small-button";
     return element;
   }
 
   function row(primary, secondary, actions = []) {
     const element = document.createElement("div"); element.className = "row";
+    const copy = document.createElement("span"); copy.className = "row-copy";
     const strong = document.createElement("strong"); strong.textContent = primary;
     const small = document.createElement("small"); small.textContent = secondary;
     const controls = document.createElement("span"); controls.className = "actions"; controls.append(...actions);
-    element.append(strong, small, controls); return element;
+    copy.append(strong, small);
+    element.append(copy, controls); return element;
+  }
+
+  function renderEmpty(container, message) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = message;
+    container.append(empty);
   }
 
   function render(state) {
     document.getElementById("summary").textContent = `${state.online} 在线 · ${state.totals.visitors} 访客 · ${state.totals.messages} 消息`;
+    document.getElementById("metric-online").textContent = String(state.online ?? 0);
+    document.getElementById("metric-visitors").textContent = String(state.totals.visitors ?? 0);
+    document.getElementById("metric-messages").textContent = String(state.totals.messages ?? 0);
+    document.getElementById("metric-generation").textContent = state.active_generation ? "生成中" : "空闲";
     document.getElementById("persona").value = state.persona || "";
     document.getElementById("max-message-chars").value = state.limits.max_message_chars;
     document.getElementById("messages-per-window").value = state.limits.messages_per_window;
@@ -97,6 +110,13 @@
       ? `正在生成：${state.active_generation.generation_id} · ${state.active_generation.phase}`
       : "当前没有进行中的回复";
     const dependencyLabels = { llm: "文本模型", memory: "长期记忆", tts: "共享语音" };
+    const dependencyStatusLabels = {
+      ready: "正常",
+      degraded: "降级",
+      failed: "故障",
+      unknown: "等待调用",
+      disabled: "未启用",
+    };
     const dependencyState = document.getElementById("dependency-state");
     dependencyState.replaceChildren();
     Object.entries(state.dependencies || {}).forEach(([name, dependency]) => {
@@ -106,7 +126,7 @@
       const label = document.createElement("strong");
       label.textContent = dependencyLabels[name] || name;
       const status = document.createElement("span");
-      status.textContent = dependency.status;
+      status.textContent = dependencyStatusLabels[dependency.status] || dependency.status;
       const detail = document.createElement("small");
       detail.textContent = dependency.error_code
         ? `${dependency.error_code} · 连续失败 ${dependency.consecutive_failures}`
@@ -124,7 +144,7 @@
       ? `上次完成：${cleanup.completed_at} · 删除 ${Object.values(cleanup.counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)} 项 · Memory 失败 ${cleanup.memory_forget_failures || 0}`
       : "尚未执行清理";
     const visitors = document.getElementById("visitors"); visitors.replaceChildren();
-    state.visitors.forEach((visitor) => visitors.append(row(
+    (state.visitors || []).forEach((visitor) => visitors.append(row(
       `${visitor.display_name} · ${visitor.status}`,
       `${visitor.id} · 最近 ${visitor.last_seen_at}`,
       [
@@ -132,14 +152,17 @@
         button("删除独立记忆", "forget", visitor.id, true),
       ],
     )));
+    if (!visitors.children.length) renderEmpty(visitors, "暂无访客记录");
     const messages = document.getElementById("messages"); messages.replaceChildren();
-    state.messages.forEach((message) => messages.append(row(
+    (state.messages || []).forEach((message) => messages.append(row(
       `#${message.room_seq} ${message.display_name} · ${message.status}`,
       message.content,
       [button(message.status === "hidden" ? "恢复" : "隐藏", "message-status", message.id, message.status !== "hidden")],
     )));
+    if (!messages.children.length) renderEmpty(messages, "暂无消息记录");
     const audit = document.getElementById("audit"); audit.replaceChildren();
-    state.audit.forEach((entry) => audit.append(row(entry.action, `${entry.target_type}:${entry.target_id}`, [])));
+    (state.audit || []).forEach((entry) => audit.append(row(entry.action, `${entry.target_type}:${entry.target_id}`, [])));
+    if (!audit.children.length) renderEmpty(audit, "暂无审计记录");
   }
 
   async function refresh({ announce = false } = {}) {
@@ -218,7 +241,9 @@
     read_only: document.getElementById("room-read-only").checked,
     proactive_enabled: document.getElementById("proactive-enabled").checked,
   }));
-  document.getElementById("cancel-generation").addEventListener("click", () => mutate("/generation/cancel", "POST"));
+  document.getElementById("cancel-generation").addEventListener("click", () => {
+    if (confirm("确定取消当前正在生成的回复吗？")) mutate("/generation/cancel", "POST");
+  });
   document.getElementById("save-retention").addEventListener("click", () => mutate("/retention", "PUT", {
     message_days: Number(document.getElementById("message-retention-days").value),
     visitor_days: Number(document.getElementById("visitor-retention-days").value),

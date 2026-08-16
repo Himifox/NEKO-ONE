@@ -124,7 +124,12 @@ def main() -> None:
     admin_page = (ROOT / "frontend" / "public-admin" / "index.html").read_text(
         "utf-8"
     )
-    assert '<button type="submit">登录</button>' in admin_page
+    login_form = re.search(
+        r'<form\s+id="login-form"[^>]*>.*?</form>', admin_page, re.DOTALL
+    )
+    assert login_form, "admin login form is missing"
+    for token in ('id="admin-password"', 'type="password"', 'type="submit"'):
+        assert token in login_form.group(0), f"admin login contract is missing: {token}"
     public_script = (ROOT / "frontend" / "public-room" / "app.js").read_text(
         "utf-8"
     )
