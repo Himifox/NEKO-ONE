@@ -31,6 +31,7 @@ button, textarea { font: inherit; }
 .stage-glow { position: absolute; width: 52%; aspect-ratio: 1; border-radius: 50%; background: #ad71ff; filter: blur(100px); opacity: .18; }
 #live2d-canvas { width: min(90%, 760px); height: auto; position: relative; z-index: 1; }
 .avatar-placeholder { position: absolute; z-index: 2; display: grid; text-align: center; gap: 8px; color: #d9c3ff; }
+.avatar-placeholder[hidden] { display: none; }
 .avatar-placeholder span { font-size: clamp(44px, 9vw, 112px); letter-spacing: .12em; font-weight: 800; }
 .avatar-placeholder small { color: #a89bb9; }
 .avatar-placeholder[data-failed="true"] small { color: #f28b9b; }

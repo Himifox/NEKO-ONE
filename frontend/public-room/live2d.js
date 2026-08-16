@@ -22,10 +22,14 @@
     if (!model || !stage) return;
     const width = Math.max(stage.clientWidth, 320);
     const height = Math.max(stage.clientHeight, 320);
-    const scale = Math.min(width / model.width, height / model.height) * 0.92;
+    // Live2D content is not guaranteed to fill its bbox or sit at the model
+    // origin, so measure the real visible bounds and pin their bottom-center
+    // to the bottom-center of the stage via pivot.
+    const bounds = model.getLocalBounds();
+    const scale = Math.min(width / bounds.width, height / bounds.height) * 0.92;
     model.scale.set(scale);
-    model.anchor?.set?.(0.5, 0.5);
-    model.position.set(width / 2, height / 2 + height * 0.04);
+    model.pivot.set(bounds.x + bounds.width / 2, bounds.y + bounds.height);
+    model.position.set(width / 2, height);
   }
 
   async function setEmotion(emotion = "neutral") {

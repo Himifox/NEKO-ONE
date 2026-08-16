@@ -22,6 +22,16 @@
       "modifications": "replaced the single process.env.NODE_ENV expression with a production literal for direct browser use"
     },
     {
+      "path": "pixi-unsafe-eval-shim.js",
+      "name": "pixi-unsafe-eval-shim",
+      "version": "1.0.0",
+      "sha256": "0ec5e30c05e335ac8a7b35f65dfc5be1be642e0624557c865dae8ef52222f141",
+      "license": "MIT",
+      "license_path": "licenses/pixi-unsafe-eval-shim-MIT.txt",
+      "source": "https://github.com/Himifox/NEKO-ONE",
+      "modifications": "none"
+    },
+    {
       "path": "live2dcubismcore.min.js",
       "name": "Live2D Cubism Core for Web",
       "version": "bundled upstream build; exact release not proven",
