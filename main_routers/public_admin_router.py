@@ -139,6 +139,7 @@ async def state(request: Request) -> dict:
             "avatar": {
                 "current": request.app.state.public_avatar.manifest(),
                 "models": request.app.state.public_avatar.installed_models(),
+                "management_available": True,
             },
         }
     )

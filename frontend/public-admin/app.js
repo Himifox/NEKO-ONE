@@ -105,7 +105,7 @@
     document.getElementById("room-paused").checked = Boolean(state.controls.paused);
     document.getElementById("room-read-only").checked = Boolean(state.controls.read_only);
     document.getElementById("proactive-enabled").checked = Boolean(state.controls.proactive_enabled);
-    const avatar = state.avatar || { current: {}, models: [] };
+    const avatar = state.avatar || { current: {}, models: [], management_available: false };
     const currentAvatar = avatar.current || {};
     avatarModels = (avatar.models || []).filter((model) => model.valid);
     const invalidAvatarCount = (avatar.models || []).length - avatarModels.length;
@@ -121,7 +121,10 @@
     avatarStatus.dataset.state = currentAvatar.enabled ? "ready" : "disabled";
     document.getElementById("avatar-current-name").textContent = currentAvatar.model_name || "尚未配置";
     document.getElementById("avatar-current-file").textContent = currentAvatar.model_url || "公共房间将以纯文本模式运行";
-    document.getElementById("avatar-model-count").textContent = `${avatarModels.length} 个可用`;
+    const avatarManagementAvailable = avatar.management_available !== false;
+    document.getElementById("avatar-model-count").textContent = avatarManagementAvailable
+      ? `${avatarModels.length} 个可用`
+      : "等待后端重启";
     const avatarSelect = document.getElementById("avatar-model");
     avatarSelect.replaceChildren();
     avatarModels.forEach((model, index) => {
@@ -133,16 +136,20 @@
     });
     if (!avatarModels.length) {
       const option = document.createElement("option");
-      option.textContent = "没有校验通过的模型";
+      option.textContent = avatarManagementAvailable
+        ? "没有校验通过的模型"
+        : "重启 NEKO 后端后可选择";
       option.value = "";
       avatarSelect.append(option);
     }
     avatarSelect.disabled = !avatarModels.length;
     document.getElementById("save-avatar").disabled = !avatarModels.length;
     document.getElementById("disable-avatar").disabled = !currentAvatar.enabled;
-    document.getElementById("avatar-library-state").textContent = invalidAvatarCount
-      ? `${invalidAvatarCount} 个模型描述文件未通过安全或完整性校验，已禁止选择。`
-      : "只显示本机数据目录内通过完整性校验的模型。";
+    document.getElementById("avatar-library-state").textContent = !avatarManagementAvailable
+      ? "当前仍是旧版后端：已识别正在使用的模型，但切换功能需要重启本地 NEKO 服务后生效。"
+      : invalidAvatarCount
+        ? `${invalidAvatarCount} 个模型描述文件未通过安全或完整性校验，已禁止选择。`
+        : "只显示本机数据目录内通过完整性校验的模型。";
     const cancelGeneration = document.getElementById("cancel-generation");
     cancelGeneration.disabled = !state.active_generation?.cancellable;
     document.getElementById("generation-state").textContent = state.active_generation
@@ -206,7 +213,16 @@
 
   async function refresh({ announce = false } = {}) {
     try {
-      render(await api("/state"));
+      const state = await api("/state");
+      if (!state.avatar) {
+        const response = await fetch("/api/v1/avatar", { credentials: "same-origin" });
+        state.avatar = {
+          current: response.ok ? await response.json() : {},
+          models: [],
+          management_available: false,
+        };
+      }
+      render(state);
       if (announce) setNotice("状态已刷新", "success");
       return true;
     } catch (error) {
