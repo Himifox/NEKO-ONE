@@ -11,7 +11,7 @@
 ![WebSocket](https://img.shields.io/badge/WebSocket-Realtime-6A5ACD)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue)
 
-[快速开始](#快速开始) · [它有什么不同](#它有什么不同) · [架构](#架构) · [路线图](docs/roadmap.md) · [部署](#部署到公网) · [设计文档](docs/design/public-room-web-architecture.md)
+[快速开始](#快速开始) · [它有什么不同](#它有什么不同) · [架构](#架构) · [文档](docs/design/index.md) · [路线图](docs/roadmap.md)
 
 </div>
 
@@ -73,19 +73,13 @@ flowchart LR
     SPEECH -->|"服务端密钥"| TTS["TTS Provider"]
 ```
 
-第一版采用单实例、单主写入者和 PostgreSQL。这个约束让消息顺序、模型输出、记忆写入和 TTS 广播保持确定；需要水平扩容时，再引入 Redis、fencing token 与对象存储。
+第一版采用单实例、单主写入者和 PostgreSQL，让消息顺序、模型输出、记忆写入和 TTS 广播保持确定。
 
 ## 快速开始
 
 ### 1. 准备环境
 
-需要：
-
-- Python **3.11**；
-- [uv](https://docs.astral.sh/uv/)；
-- PostgreSQL **15+**（服务端与 `pg_dump` / `pg_restore` 客户端工具）；
-- 已配置的私有 LLM 参数；
-- 可选的 TTS 参数。
+需要：Python **3.11**、[uv](https://docs.astral.sh/uv/)、PostgreSQL **15+**、已配置的私有 LLM 参数。
 
 ```powershell
 git clone https://github.com/Himifox/NEKO-ONE.git
@@ -103,37 +97,26 @@ NEKO_PUBLIC_SESSION_SECRET=replace-with-at-least-48-random-characters
 NEKO_PUBLIC_ADMIN_PASSWORD=replace-with-a-long-unique-admin-password
 ```
 
-真实 LLM/TTS 密钥继续保存在 NEKO 的私有服务端配置目录中，**不要**写入 `.env.public.example`、前端文件或 Git。
+真实 LLM/TTS 密钥保存在 NEKO 的私有服务端配置目录中，**不要**写入 `.env.public.example`、前端文件或 Git。
 
 ### 2. 启动两个服务
 
-终端一——启动私有记忆服务：
-
 ```powershell
-uv run --env-file .env.public neko-memory
-```
-
-终端二——启动公共房间：
-
-```powershell
-uv run --env-file .env.public neko-public
+uv run --env-file .env.public neko-memory   # 终端一：私有记忆服务
+uv run --env-file .env.public neko-public   # 终端二：公共房间
 ```
 
 打开：
 
 - 公共房间：<http://127.0.0.1:48911/>
 - 管理后台：<http://127.0.0.1:48911/admin>
-- 存活检查：<http://127.0.0.1:48911/api/v1/health/live>
 - 就绪检查：<http://127.0.0.1:48911/api/v1/health/ready>
 
-如果 `NEKO_PUBLIC_ADMIN_PASSWORD` 少于 12 位或未设置，管理 API 会保持禁用。
-就绪检查会实际验证 PostgreSQL 连接、schema 版本、可回滚写入、最低磁盘余量和 LLM/Persona
-配置；Memory、TTS 与 Live2D 作为可降级能力单独报告。生产 OpenResty 只允许
-本机监控访问详细就绪结果，公网只保留不含依赖细节的存活检查。
+如果 `NEKO_PUBLIC_ADMIN_PASSWORD` 少于 12 位或未设置，管理 API 会保持禁用。就绪检查会验证 PostgreSQL 连接、schema 版本、可回滚写入、磁盘余量和 LLM/Persona 配置；Memory、TTS 与 Live2D 作为可降级能力单独报告。
 
 ## 记忆与身份边界
 
-NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向量库：
+记忆拆成三层，而不是把所有访客的话混进一个向量库：
 
 ```text
 管理员保护的 Persona
@@ -150,29 +133,11 @@ NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向�
 - 管理员可以审核公共事实，也可以彻底遗忘指定访客；
 - 浏览器不会收到原始记忆文件、内部主体 ID 或 Memory Server 地址。
 
-默认保留期为消息/事件 30 天、匿名访客 90 天、审计 180 天、共享语音 24 小时。清理访客时必须先成功遗忘其 Memory；失败会保留本地身份并在下一轮重试。旧事件窗口已过期时，服务端用 `replay.reset` 明确要求客户端重建时间线。
-
-完整机制见 [长期记忆架构](docs/architecture/memory-system.md)和[数据保留 ADR](docs/design/retention-policy.md)。
+完整机制见[长期记忆架构](docs/architecture/memory-system.md)和[数据保留策略](docs/design/retention-policy.md)。
 
 ## 管理后台
 
-`/admin` 是服务器管理入口，不是公开的模型配置页面。当前支持：
-
-- 查看房间、访客、消息和审计状态；
-- 编辑受保护的角色 Persona；
-- 添加审核后的房间共享事实；
-- 删除指定访客的独立记忆；
-- 封禁或恢复访客；
-- 隐藏或恢复公共消息；
-- 查看当前 Live2D 实时预览，安全切换已安装形象或停用 Live2D；
-- 调整消息长度、频率和窗口限额。
-- 暂停房间、切换只读、关闭主动主持或取消当前回复。
-- 设置数据保留期、查看上次清理结果或立即执行清理。
-- 查看 LLM、Memory 与 TTS 最近一次调用的就绪/降级状态。
-
-生产入口先要求一组独立的 OpenResty Basic Auth 凭据，再使用应用管理员密码、
-签名的 `HttpOnly` Cookie 和修改操作 CSRF 校验。两组密码不得复用；生产环境必须
-启用 HTTPS 和安全 Cookie。具体凭据文件创建和权限见[部署说明](deploy/README.md)。
+`/admin` 是服务器管理入口。支持查看房间、访客、消息与审计状态，编辑 Persona，审核共享记忆，封禁访客，隐藏消息，切换 Live2D 形象，调整限额与保留策略，以及查看 LLM、Memory、TTS 的降级状态。生产入口叠加 OpenResty Basic Auth、签名 `HttpOnly` Cookie 和 CSRF 校验，详见[部署说明](deploy/README.md)。
 
 ## 部署到公网
 
@@ -180,50 +145,17 @@ NEKO-ONE 把记忆拆成三层，而不是把所有访客的话混进一个向�
 
 | 网络入口 | 作用 | 是否公开 |
 | --- | --- | --- |
-| `443/tcp` | 现有 1Panel OpenResty HTTPS / WSS | **是** |
+| `443/tcp` | 1Panel OpenResty HTTPS / WSS | **是** |
 | `127.0.0.1:48911` | 公共房间 API | 否 |
-| `127.0.0.1:5432` | PostgreSQL 公共业务数据库 | 否 |
+| `127.0.0.1:5432` | PostgreSQL | 否 |
 | Memory Server 端口 | 长期记忆服务 | 否 |
 | LLM / TTS 配置 | 供应商凭据 | 否 |
 
-实际宿主网站是 [`Himifox/pardofelis-web`](https://github.com/Himifox/pardofelis-web)：`pardofelis.wiki` 保持静态站，NEKO 使用独立的 `https://neko.pardofelis.wiki/` 子域并由现有 1Panel OpenResty 反代到回环服务。第一版从主站使用普通链接进入，不使用 iframe，也不把 NEKO 文件放进 Vite `dist/`。完整边界见 [pardofelis-web 集成 ADR](docs/design/pardofelis-web-integration.md)。
-
-仓库提供了 OpenResty/Nginx 配置、两个 systemd unit 和环境变量模板。边缘配置已包含 CSP、HSTS、请求体、速率及连接上限，并用独立 Basic Auth 隔离管理入口；应用与 Uvicorn 还会限制 HTTP 请求体和 WebSocket 帧。Memory 使用弱依赖，服务不可用时房间退化为 Persona 与最近消息，不会随之退出。参见[部署说明](deploy/README.md)和[公网边界 ADR](docs/design/public-edge-security.md)。上线前请替换所有密钥，并为公共数据库、记忆与私有配置建立每日备份和恢复演练。
+仓库提供 OpenResty/Nginx 配置、systemd unit 和环境变量模板，边缘已包含 CSP、HSTS、请求体、速率及连接上限。参见[部署说明](deploy/README.md)和[公网边界设计](docs/design/public-edge-security.md)。
 
 ## 验证
 
-所有 Python 验证均通过 `uv` 运行：
-
-以下数据库验证会永久清空目标库。只能使用名称包含 `test`、`verify` 或 `ci` 的
-专用数据库，并显式设置 `NEKO_VERIFY_ALLOW_DATABASE_RESET=1`；严禁使用生产 DSN。
-备份恢复验证还需要一个独立的空恢复库。完整 Debian 命令见
-[部署说明](deploy/README.md)。
-
-```powershell
-$env:NEKO_PUBLIC_DATABASE_URL = "postgresql://neko_verify:...@127.0.0.1:5432/neko_verify"
-$env:NEKO_POSTGRES_RESTORE_URL = "postgresql://neko_verify:...@127.0.0.1:5432/neko_restore_verify"
-$env:NEKO_VERIFY_ALLOW_DATABASE_RESET = "1"
-uv run --locked python scripts/verify_public_room.py
-uv run --locked python scripts/verify_postgres_migration.py
-uv run --locked python scripts/check_public_boundary.py
-uv run --locked python scripts/verify_deployment_security.py
-uv run --locked python scripts/verify_room_capacity.py
-uv run --locked python scripts/verify_backup_restore.py
-uv run --locked python scripts/verify_public_assets.py
-uv run --locked python scripts/verify_provider_acceptance.py
-node --check frontend/public-room/app.js
-node --check frontend/public-room/live2d.js
-node --check frontend/public-admin/app.js
-```
-
-`verify_public_room.py` 使用假的模型、记忆和 TTS 实现，不会调用真实供应商或污染正式记忆。它覆盖多人连接、消息序号、幂等发送、断线续传、管理审核、封禁、限额、应急控制、数据清理、过期回放重置，以及 LLM 超时、Memory 故障和 TTS 失败后的降级与恢复。`verify_room_capacity.py` 进一步验证 10/25/50 人并发、严格事件顺序、单 generation、慢客户端隔离和任务回收；长时命令及门槛见[容量与稳定性运维手册](docs/operations/capacity-and-soak.md)。`verify_backup_restore.py` 覆盖真实 `pg_dump`/`pg_restore`、Memory SQLite 在线备份、清单校验、隔离恢复、损坏和路径逃逸拒绝；生产加密与异机演练见[备份恢复手册](docs/operations/backup-and-restore.md)。
-
-`verify_memory_runtime.py` 会在隔离目录启动真实 Memory 应用，验证健康指纹、
-旧存储控制路由已消失，并确认不会重新创建任何云同步目录或状态文件。
-
-`verify_public_assets.py` 对浏览器运行库逐文件核对版本、SHA-256 和许可证，并阻止无授权模型、声音或字体重新进入公开发行物。
-
-真实供应商不会在普通回归中调用。上线前先执行无费用预检，再通过显式费用确认运行一次隔离的 LLM、Memory、TTS 验收，详见[真实供应商验收手册](docs/operations/provider-acceptance.md)。
+`scripts/` 下提供确定性验证脚本，用假模型/记忆/TTS 覆盖多人连接、消息序号、幂等发送、断线续传、管理审核、封禁、限额、应急控制、数据清理、降级与恢复，以及容量、备份恢复、资产清单和安全边界。真实供应商不在普通回归中调用。完整命令与门槛见[容量与稳定性手册](docs/operations/capacity-and-soak.md)、[备份恢复手册](docs/operations/backup-and-restore.md)和[真实供应商验收手册](docs/operations/provider-acceptance.md)。
 
 ## 仓库边界
 
@@ -235,16 +167,9 @@ node --check frontend/public-admin/app.js
 
 Agent Server、插件市场、浏览器/电脑控制、Steam、云存档、游戏、Galgame、ASR、实时语音输入、VRM、MMD、PNGTuber、桌面启动器及直播平台礼物逻辑。
 
-发行边界检查还会拒绝桌面截图、游戏状态、教程、直播/网页抓取、音乐点播、
-Workshop、Steam 云包、声音克隆编辑器及对应提示词重新进入源码树和公开发行物。
-长期记忆继续写入本地持久化目录；旧云同步、快照导入导出、存储迁移闸门和
-远端恢复实现已经移除，生产备份统一使用可校验的 `scripts/manage_backup.py` 流程。
-
 ## 当前版本
 
-`v0.1` 是可部署的单房间基线，设计目标为 **10–50 人的小型公共房间**。当前使用游客身份、单实例和 PostgreSQL，不依赖 Redis；账号体系、多实例协调、直播平台接入以及公开声音配置不在第一版范围内。
-
-后续阶段、进入条件和验收门槛见 [产品路线图](docs/roadmap.md)。当前优先完成阶段 1 的真实供应商、公网安全、容量和备份恢复验收，再进入阶段 2。
+`v0.1` 是可部署的单房间基线，设计目标为 **10–50 人的小型公共房间**。当前使用游客身份、单实例和 PostgreSQL，不依赖 Redis；账号体系、多实例协调、直播平台接入以及公开声音配置不在第一版范围内。后续阶段见[产品路线图](docs/roadmap.md)。
 
 ## 项目结构
 
@@ -256,7 +181,7 @@ main_routers/             公共 HTTP、管理 API 与 WebSocket 协议
 frontend/public-room/     访客页面
 frontend/public-admin/    私有管理后台
 deploy/                   OpenResty/Nginx 与 systemd 部署配置
-docs/                     当前架构与设计文档
+docs/                     架构、设计与运维文档
 ```
 
 ## License
