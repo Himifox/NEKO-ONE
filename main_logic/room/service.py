@@ -164,7 +164,7 @@ class PublicRoomService:
         if isinstance(exc, EmptyModelResponseError):
             return "empty_response"
         if isinstance(exc, TimeoutError):
-            return "TimeoutError"
+            return "timeout"
         if isinstance(exc, OSError):
             return "network_error"
         if isinstance(exc, ValueError):
