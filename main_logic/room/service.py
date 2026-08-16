@@ -189,6 +189,9 @@ class PublicRoomService:
         stored_cleanup = await self.store.get_setting("retention_last_result")
         if isinstance(stored_cleanup, dict):
             self.last_cleanup = stored_cleanup
+        stored_character = await self.store.get_setting("public_character", "NEKO")
+        if isinstance(stored_character, str):
+            self.engine.set_public_character_name(stored_character)
         await self._ensure_room_runtime("main")
         self._retention_task = asyncio.create_task(
             self._retention_loop(), name="public-room-retention"
@@ -205,6 +208,18 @@ class PublicRoomService:
             self._room_worker(room_id, director), name=f"public-room-worker:{room_id}"
         )
         await self._sync_proactive_task(room_id)
+
+    async def update_character_name(self, value: str) -> str:
+        """Persist the public identity while retaining the existing memory namespace."""
+
+        name = value.strip()
+        if not name:
+            raise RoomInputError("invalid_character_name", "character name is required")
+        await self.store.set_setting("public_character", name)
+        self.engine.set_public_character_name(name)
+        for director in self.directors.values():
+            director.set_character_names(("NEKO", "猫娘", name))
+        return name
 
     async def submit_message(
         self,
@@ -369,7 +384,7 @@ class PublicRoomService:
             forget_failures = 0
             if stale:
                 try:
-                    character_name, _ = await self.engine.character()
+                    character_name = await self.engine.memory_character_name()
                 except Exception:
                     logger.exception(
                         "retention could not resolve character for visitor forget"
@@ -621,7 +636,7 @@ class PublicRoomService:
                     raise RuntimeError("target visitor disappeared")
             recent_messages = await self.store.list_messages(room_id, limit=40)
             room_context = await self.memory.build_context(
-                character_name=(await self.engine.character())[0],
+                character_name=await self.engine.memory_character_name(),
                 room_id=room_id,
                 target_visitor=visitor,
                 recent_messages=recent_messages,
@@ -743,7 +758,7 @@ class PublicRoomService:
             if not is_proactive:
                 self._spawn_background_task(
                     self._record_completed_turn(
-                        character_name=character_name,
+                        character_name=await self.engine.memory_character_name(),
                         room_id=room_id,
                         visitor=visitor,
                         user_message=candidate.message,

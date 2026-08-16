@@ -13,12 +13,17 @@ from .models import TurnCandidate
 
 class RoomDirector:
     def __init__(self, *, character_names: tuple[str, ...] = ("NEKO", "猫娘")):
-        escaped = [re.escape(name) for name in character_names if name]
-        self._mention_pattern = re.compile("|".join(escaped), re.IGNORECASE) if escaped else None
+        self.set_character_names(character_names)
         self._candidates: list[TurnCandidate] = []
         self._condition = asyncio.Condition()
         self._recent_targets: deque[str] = deque(maxlen=5)
         self._closed = False
+
+    def set_character_names(self, character_names: tuple[str, ...]) -> None:
+        """Refresh future direct-mention matching without dropping queued turns."""
+
+        escaped = [re.escape(name) for name in character_names if name]
+        self._mention_pattern = re.compile("|".join(escaped), re.IGNORECASE) if escaped else None
 
     async def enqueue(self, candidate: TurnCandidate) -> None:
         if self._mention_pattern is not None:

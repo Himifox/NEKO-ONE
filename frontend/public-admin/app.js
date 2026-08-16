@@ -98,6 +98,7 @@
     document.getElementById("metric-visitors").textContent = String(state.totals.visitors ?? 0);
     document.getElementById("metric-messages").textContent = String(state.totals.messages ?? 0);
     document.getElementById("metric-generation").textContent = state.active_generation ? "生成中" : "空闲";
+    document.getElementById("character-name").value = state.character || "NEKO";
     document.getElementById("persona").value = state.persona || "";
     const personaSourceMessage = {
       builtin_default: "当前展示的是内置默认人格；保存后会将它作为此角色的自定义人格。",
@@ -288,6 +289,7 @@
     }
   });
   document.getElementById("save-persona").addEventListener("click", () => mutate("/persona", "PUT", { system_prompt: document.getElementById("persona").value }));
+  document.getElementById("save-character").addEventListener("click", () => mutate("/character", "PUT", { display_name: document.getElementById("character-name").value }));
   document.getElementById("add-fact").addEventListener("click", async () => {
     const fact = document.getElementById("room-fact");
     const saved = await mutate("/memory/room-facts", "POST", { text: fact.value, importance: Number(document.getElementById("fact-importance").value) });
