@@ -33,20 +33,22 @@ class AllowlistedStaticFiles(StaticFiles):
         self.allowed_paths = frozenset(allowed_paths)
 
     async def get_response(self, path: str, scope: Scope) -> Response:
-        normalized = PurePosixPath(path).as_posix()
+        # Windows normpath rewrites "/" to "\\"; normalize so the allowlist
+        # and file lookup always use forward slashes.
+        normalized = PurePosixPath(path.replace("\\", "/")).as_posix()
         if normalized not in self.allowed_paths:
             return Response(status_code=404)
-        return await super().get_response(path, scope)
+        return await super().get_response(normalized, scope)
 
 
 class SpeechStaticFiles(StaticFiles):
     _public_name = re.compile(r"^speech_[0-9a-f]{32}\.wav$")
 
     async def get_response(self, path: str, scope: Scope) -> Response:
-        normalized = PurePosixPath(path).as_posix()
+        normalized = PurePosixPath(path.replace("\\", "/")).as_posix()
         if "/" in normalized or self._public_name.fullmatch(normalized) is None:
             return Response(status_code=404)
-        return await super().get_response(path, scope)
+        return await super().get_response(normalized, scope)
 
 CONTENT_SECURITY_POLICY = "; ".join(
     (
@@ -149,6 +151,14 @@ def create_app() -> FastAPI:
         if request.url.path == "/admin" or request.url.path.startswith(
             "/api/v1/admin/"
         ):
+            response.headers["Cache-Control"] = "no-store"
+        if request.url.path.startswith("/assets/"):
+            # Public frontend assets change during development; never let the
+            # browser serve a stale stylesheet/script against a new deployment.
+            response.headers["Cache-Control"] = "no-store"
+        if request.url.path == "/" and request.method == "GET":
+            # The room page must always be revalidated so new frontend builds
+            # are picked up instead of a cached HTML document.
             response.headers["Cache-Control"] = "no-store"
         return response
 
