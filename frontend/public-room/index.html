@@ -7,25 +7,37 @@
     <meta name="referrer" content="same-origin" />
     <title>NEKO 公共房间</title>
     <script src="/assets/room-theme.js?v=1"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=5" />
+    <link rel="stylesheet" href="/assets/styles.css?v=6" />
   </head>
   <body>
     <main class="room-shell">
       <section class="stage" aria-label="NEKO 形象区域">
         <div class="stage-glow" aria-hidden="true"></div>
+        <div class="scene-pill" aria-label="当前房间时段">
+          <span class="scene-indicator" aria-hidden="true"></span>
+          <span><small>ROOM AMBIENCE</small><strong id="room-period-label">自动场景</strong></span>
+        </div>
         <canvas id="live2d-canvas" aria-label="NEKO Live2D" width="720" height="720"></canvas>
         <div class="avatar-placeholder" id="avatar-placeholder">
           <span>NEKO</span>
           <small>正在加载 Live2D</small>
         </div>
         <div class="presence-pill"><span class="presence-dot"></span><span id="online-count">0</span> 人在线</div>
+        <div class="avatar-caption">
+          <small>RESIDENT HOST</small>
+          <strong>NEKO</strong>
+          <span>与你共享此刻的房间</span>
+        </div>
       </section>
 
       <section class="chat-panel" aria-label="公共聊天">
         <header>
-          <div>
-            <p class="eyebrow">长期在线实体</p>
-            <h1>NEKO 公共房间</h1>
+          <div class="room-title-lockup">
+            <span class="room-monogram" aria-hidden="true">N</span>
+            <div>
+              <p class="eyebrow">长期在线实体 · PUBLIC ROOM</p>
+              <h1>NEKO 公共房间</h1>
+            </div>
           </div>
           <div id="connection-state" class="connection-state" data-state="connecting">连接中</div>
         </header>
@@ -37,7 +49,7 @@
         </div>
 
         <div class="room-status">
-          <span id="queue-state">等待消息</span>
+          <span class="queue-state-wrap"><i aria-hidden="true"></i><span id="queue-state">等待消息</span></span>
           <span class="room-status-actions">
             <button type="button" id="sound-toggle" class="text-button" aria-pressed="false">声音：开</button>
             <span id="visitor-name">游客</span>
@@ -53,7 +65,7 @@
             placeholder="和 NEKO 说点什么…"
             required
           ></textarea>
-          <button type="submit" id="send-button">发送</button>
+          <button type="submit" id="send-button"><span>发送</span><i aria-hidden="true">↗</i></button>
         </form>
       </section>
     </main>
@@ -61,7 +73,7 @@
     <script src="/runtime/pixi-unsafe-eval-shim.js"></script>
     <script src="/runtime/pixi.min.js"></script>
     <script src="/runtime/pixi-live2d-display-cubism4.min.js"></script>
-    <script src="/assets/live2d.js?v=2" defer></script>
+    <script src="/assets/live2d.js?v=3" defer></script>
     <script src="/assets/app.js?v=3" defer></script>
   </body>
 </html>

@@ -88,7 +88,8 @@
         antialias: true,
       });
       model = await PIXI.live2d.Live2DModel.from(manifest.model_url, {
-        autoInteract: true,
+        autoHitTest: true,
+        autoFocus: true,
       });
       app.stage.addChild(model);
       app.ticker.add((delta) => {
