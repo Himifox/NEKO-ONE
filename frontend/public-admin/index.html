@@ -6,7 +6,7 @@
     <meta name="referrer" content="same-origin" />
     <meta name="color-scheme" content="light" />
     <title>NEKO 公共房间管理</title>
-    <link rel="stylesheet" href="/admin-assets/styles.css?v=5" />
+    <link rel="stylesheet" href="/admin-assets/styles.css?v=6" />
   </head>
   <body>
     <div class="ambient ambient-one" aria-hidden="true"></div>
@@ -281,31 +281,33 @@
                 <p>调整保留周期属于高影响操作；立即清理会永久删除到期数据。</p>
               </div>
 
-              <article class="panel panel-wide retention-panel">
-                <div class="panel-heading">
-                  <div><p class="panel-kicker">RETENTION POLICY</p><h3>保留与清理策略</h3></div>
-                  <span class="status-chip warning">谨慎操作</span>
-                </div>
-                <div class="retention-grid">
-                  <label class="field"><span>消息 / 事件（天）</span><input id="message-retention-days" type="number" min="1" max="3650" /></label>
-                  <label class="field"><span>访客 / 记忆（天）</span><input id="visitor-retention-days" type="number" min="1" max="3650" /></label>
-                  <label class="field"><span>审计日志（天）</span><input id="audit-retention-days" type="number" min="7" max="3650" /></label>
-                  <label class="field"><span>共享语音（小时）</span><input id="speech-retention-hours" type="number" min="1" max="8760" /></label>
-                  <label class="field"><span>清理周期（分钟）</span><input id="cleanup-interval-minutes" type="number" min="5" max="1440" /></label>
-                </div>
-                <div class="panel-actions split-actions">
-                  <button id="save-retention" class="button primary" type="button">保存保留策略</button>
-                  <button id="run-retention" class="button danger" type="button">立即执行清理</button>
-                </div>
-                <p id="cleanup-state" class="inline-state"></p>
-              </article>
+              <div class="data-lifecycle-grid">
+                <article class="panel retention-panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">RETENTION POLICY</p><h3>保留与清理策略</h3></div>
+                    <span class="status-chip warning">谨慎操作</span>
+                  </div>
+                  <div class="retention-grid">
+                    <label class="field"><span>消息 / 事件（天）</span><input id="message-retention-days" type="number" min="1" max="3650" /></label>
+                    <label class="field"><span>访客 / 记忆（天）</span><input id="visitor-retention-days" type="number" min="1" max="3650" /></label>
+                    <label class="field"><span>审计日志（天）</span><input id="audit-retention-days" type="number" min="7" max="3650" /></label>
+                    <label class="field"><span>共享语音（小时）</span><input id="speech-retention-hours" type="number" min="1" max="8760" /></label>
+                    <label class="field"><span>清理周期（分钟）</span><input id="cleanup-interval-minutes" type="number" min="5" max="1440" /></label>
+                  </div>
+                  <div class="panel-actions split-actions">
+                    <button id="save-retention" class="button primary" type="button">保存保留策略</button>
+                    <button id="run-retention" class="button danger" type="button">立即执行清理</button>
+                  </div>
+                  <p id="cleanup-state" class="inline-state"></p>
+                </article>
 
-              <article class="panel panel-wide audit-panel">
-                <div class="panel-heading">
-                  <div><p class="panel-kicker">AUDIT TRAIL</p><h3>最近审计日志</h3></div>
-                </div>
-                <div id="audit" class="table audit-table"></div>
-              </article>
+                <article class="panel audit-panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">AUDIT TRAIL</p><h3>最近审计日志</h3></div>
+                  </div>
+                  <div id="audit" class="table audit-table"></div>
+                </article>
+              </div>
             </section>
           </div>
         </div>
