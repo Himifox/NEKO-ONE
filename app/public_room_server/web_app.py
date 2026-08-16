@@ -32,6 +32,11 @@ class AllowlistedStaticFiles(StaticFiles):
         super().__init__(directory=directory)
         self.allowed_paths = frozenset(allowed_paths)
 
+    def replace_allowed_paths(self, allowed_paths: set[str]) -> None:
+        # An immutable snapshot makes concurrent reads safe while the admin
+        # switches the selected model.
+        self.allowed_paths = frozenset(allowed_paths)
+
     async def get_response(self, path: str, scope: Scope) -> Response:
         # Windows normpath rewrites "/" to "\\"; normalize so the allowlist
         # and file lookup always use forward slashes.
@@ -92,10 +97,16 @@ def create_app() -> FastAPI:
     admin_sessions = AdminSessionManager(data_dir)
     avatar = PublicAvatar(data_dir=data_dir)
     avatar.prepare()
+    live2d_static = AllowlistedStaticFiles(
+        directory=avatar.assets_root,
+        allowed_paths=avatar.public_asset_paths(),
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         await service.start()
+        avatar.restore(await service.store.get_setting("live2d_model"))
+        live2d_static.replace_allowed_paths(avatar.public_asset_paths())
         yield
         await service.shutdown()
 
@@ -111,6 +122,7 @@ def create_app() -> FastAPI:
     application.state.guest_sessions = sessions
     application.state.admin_sessions = admin_sessions
     application.state.public_avatar = avatar
+    application.state.live2d_static = live2d_static
 
     max_http_body_bytes = _bounded_env_int(
         "NEKO_PUBLIC_MAX_HTTP_BODY_BYTES", 32768, 1024, 1048576
@@ -168,10 +180,7 @@ def create_app() -> FastAPI:
     application.mount("/assets", StaticFiles(directory=FRONTEND_ROOT), name="public-assets")
     application.mount(
         "/live2d-assets",
-        AllowlistedStaticFiles(
-            directory=avatar.assets_root,
-            allowed_paths=avatar.public_asset_paths(),
-        ),
+        live2d_static,
         name="public-live2d-assets",
     )
     application.mount(

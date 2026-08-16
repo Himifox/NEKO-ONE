@@ -2,6 +2,7 @@
   "use strict";
   let csrf = "";
   let mutationInFlight = false;
+  let avatarModels = [];
   const loginCard = document.getElementById("login-card");
   const dashboard = document.getElementById("dashboard");
   const notice = document.getElementById("notice");
@@ -104,6 +105,44 @@
     document.getElementById("room-paused").checked = Boolean(state.controls.paused);
     document.getElementById("room-read-only").checked = Boolean(state.controls.read_only);
     document.getElementById("proactive-enabled").checked = Boolean(state.controls.proactive_enabled);
+    const avatar = state.avatar || { current: {}, models: [] };
+    const currentAvatar = avatar.current || {};
+    avatarModels = (avatar.models || []).filter((model) => model.valid);
+    const invalidAvatarCount = (avatar.models || []).length - avatarModels.length;
+    const avatarStatusLabels = {
+      ready: "运行中",
+      not_configured: "未启用",
+      missing_model: "模型缺失",
+      invalid_model: "校验失败",
+      invalid_configuration: "配置无效",
+    };
+    const avatarStatus = document.getElementById("avatar-status");
+    avatarStatus.textContent = avatarStatusLabels[currentAvatar.status] || "状态未知";
+    avatarStatus.dataset.state = currentAvatar.enabled ? "ready" : "disabled";
+    document.getElementById("avatar-current-name").textContent = currentAvatar.model_name || "尚未配置";
+    document.getElementById("avatar-current-file").textContent = currentAvatar.model_url || "公共房间将以纯文本模式运行";
+    document.getElementById("avatar-model-count").textContent = `${avatarModels.length} 个可用`;
+    const avatarSelect = document.getElementById("avatar-model");
+    avatarSelect.replaceChildren();
+    avatarModels.forEach((model, index) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = `${model.model_name} · ${model.model_file}${model.active ? "（当前）" : ""}`;
+      option.selected = Boolean(model.active);
+      avatarSelect.append(option);
+    });
+    if (!avatarModels.length) {
+      const option = document.createElement("option");
+      option.textContent = "没有校验通过的模型";
+      option.value = "";
+      avatarSelect.append(option);
+    }
+    avatarSelect.disabled = !avatarModels.length;
+    document.getElementById("save-avatar").disabled = !avatarModels.length;
+    document.getElementById("disable-avatar").disabled = !currentAvatar.enabled;
+    document.getElementById("avatar-library-state").textContent = invalidAvatarCount
+      ? `${invalidAvatarCount} 个模型描述文件未通过安全或完整性校验，已禁止选择。`
+      : "只显示本机数据目录内通过完整性校验的模型。";
     const cancelGeneration = document.getElementById("cancel-generation");
     cancelGeneration.disabled = !state.active_generation?.cancellable;
     document.getElementById("generation-state").textContent = state.active_generation
@@ -241,6 +280,20 @@
     read_only: document.getElementById("room-read-only").checked,
     proactive_enabled: document.getElementById("proactive-enabled").checked,
   }));
+  document.getElementById("save-avatar").addEventListener("click", () => {
+    const selected = avatarModels[Number(document.getElementById("avatar-model").value)];
+    if (!selected) return;
+    mutate("/avatar", "PUT", {
+      enabled: true,
+      model_name: selected.model_name,
+      model_file: selected.model_file,
+    });
+  });
+  document.getElementById("disable-avatar").addEventListener("click", () => {
+    if (confirm("停用公共房间的 Live2D 形象？模型文件不会被删除。")) {
+      mutate("/avatar", "PUT", { enabled: false });
+    }
+  });
   document.getElementById("cancel-generation").addEventListener("click", () => {
     if (confirm("确定取消当前正在生成的回复吗？")) mutate("/generation/cancel", "POST");
   });

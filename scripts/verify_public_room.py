@@ -61,6 +61,23 @@ def main() -> None:
     (data_dir / "live2d" / "private-note.txt").write_text(
         "must not be public", encoding="utf-8"
     )
+    model_root = data_dir / "live2d" / "verification-model"
+    model_root.mkdir()
+    (model_root / "verification.moc3").write_bytes(b"MOC3 verification")
+    (model_root / "texture.png").write_bytes(b"PNG verification")
+    (model_root / "private-note.txt").write_text("must stay private", encoding="utf-8")
+    (model_root / "verification.model3.json").write_text(
+        json.dumps(
+            {
+                "Version": 3,
+                "FileReferences": {
+                    "Moc": "verification.moc3",
+                    "Textures": ["texture.png"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     speech_root = data_dir / "speech"
     speech_root.mkdir(parents=True, exist_ok=True)
     public_speech_name = f"speech_{'a' * 32}.wav"
@@ -274,6 +291,53 @@ def main() -> None:
             admin_state = client.get("/api/v1/admin/state")
             assert admin_state.status_code == 200
             assert admin_state.json()["totals"]["messages"] == 2
+            assert admin_state.json()["avatar"]["models"] == [
+                {
+                    "model_name": "verification-model",
+                    "model_file": "verification.model3.json",
+                    "valid": True,
+                    "active": False,
+                }
+            ]
+            activate_avatar = client.put(
+                "/api/v1/admin/avatar",
+                json={
+                    "enabled": True,
+                    "model_name": "verification-model",
+                    "model_file": "verification.model3.json",
+                },
+                headers=headers,
+            )
+            assert activate_avatar.status_code == 200
+            assert activate_avatar.json()["current"]["status"] == "ready"
+            assert client.get("/api/v1/avatar").json()["enabled"] is True
+            assert client.get(
+                "/live2d-assets/verification-model/verification.model3.json"
+            ).status_code == 200
+            assert client.get(
+                "/live2d-assets/verification-model/private-note.txt"
+            ).status_code == 404
+            rejected_avatar = client.put(
+                "/api/v1/admin/avatar",
+                json={
+                    "enabled": True,
+                    "model_name": "verification-model",
+                    "model_file": "missing.model3.json",
+                },
+                headers=headers,
+            )
+            assert rejected_avatar.status_code == 400
+            assert client.get("/api/v1/avatar").json()["enabled"] is True
+            disable_avatar = client.put(
+                "/api/v1/admin/avatar",
+                json={"enabled": False},
+                headers=headers,
+            )
+            assert disable_avatar.status_code == 200
+            assert client.get("/api/v1/avatar").json()["enabled"] is False
+            assert client.get(
+                "/live2d-assets/verification-model/verification.model3.json"
+            ).status_code == 404
             limits = client.put(
                 "/api/v1/admin/limits",
                 json={

@@ -191,6 +191,15 @@ def main() -> None:
         ):
             avatar = PublicAvatar(data_dir=data_dir)
             assert avatar.manifest()["enabled"] is True
+            installed = avatar.installed_models()
+            assert installed == [
+                {
+                    "model_name": "neko",
+                    "model_file": "neko.model3.json",
+                    "valid": True,
+                    "active": True,
+                }
+            ]
             allowed = avatar.public_asset_paths()
         assert allowed == {
             "neko/neko.model3.json",
@@ -200,6 +209,28 @@ def main() -> None:
             "neko/expressions/smile.exp3.json",
         }
         assert "neko/private-note.txt" not in allowed
+        avatar.disable()
+        assert avatar.manifest()["status"] == "not_configured"
+        avatar.configure(model_name="neko", model_file="neko.model3.json")
+        assert avatar.manifest()["enabled"] is True
+        try:
+            avatar.configure(model_name="neko", model_file="private.model3.json")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("an uninstalled model descriptor was accepted")
+        assert avatar.manifest()["enabled"] is True, "failed switch was not rolled back"
+
+        invalid_root = data_dir / "live2d" / "broken"
+        invalid_root.mkdir()
+        (invalid_root / "broken.model3.json").write_text(
+            json.dumps({"FileReferences": {"Moc": "missing.moc3", "Textures": []}}),
+            encoding="utf-8",
+        )
+        assert any(
+            model["model_name"] == "broken" and model["valid"] is False
+            for model in avatar.installed_models()
+        )
     environment = (ROOT / ".env.public.example").read_text("utf-8")
     assert "NEKO_PUBLIC_LIVE2D_MODEL_NAME=\n" in environment
     assert "NEKO_PUBLIC_LIVE2D_MODEL_FILE=\n" in environment

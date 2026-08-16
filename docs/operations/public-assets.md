@@ -39,16 +39,19 @@ $NEKO_PUBLIC_DATA_DIR/live2d/<model-name>/
   optional motions / expressions / physics...
 ```
 
-然后同时设置：
+启动服务后，在私有管理后台的“形象配置”中选择并启用模型。后台只列出完成
+descriptor 资产校验的候选项，选择结果保存在 PostgreSQL，重启后继续生效。
+
+也可以用以下环境变量提供首次启动的默认选择：
 
 ```dotenv
 NEKO_PUBLIC_LIVE2D_MODEL_NAME=<model-name>
 NEKO_PUBLIC_LIVE2D_MODEL_FILE=<model-file>.model3.json
 ```
 
-名称和 descriptor 只能是安全文件名。服务端会解析 descriptor，拒绝路径逃逸，并确认 Moc、纹理及声明的 Physics、Pose、UserData、DisplayInfo、Expression、Motion、Sound 文件都存在；失败时保持文字聊天可用并显示明确占位状态。
+数据库中已有后台选择时会覆盖环境变量。名称和 descriptor 只能是安全文件名。服务端会解析 descriptor，拒绝路径逃逸，并确认 Moc、纹理及声明的 Physics、Pose、UserData、DisplayInfo、Expression、Motion、Sound 文件都存在；失败时保持文字聊天可用并显示明确占位状态。
 
-`/live2d-assets` 只会公开当前启用 descriptor 和它明确引用的文件。同一数据目录中的其他模型、说明、订单或临时文件即使能被猜到路径也会返回 404；但仍不应把授权证明或密钥放进模型目录。更换 descriptor 或资源后必须重启 `neko-public`，让启动时的公开文件 allowlist 重新生成。
+`/live2d-assets` 只会公开当前启用 descriptor 和它明确引用的文件。同一数据目录中的其他模型、说明、订单或临时文件即使能被猜到路径也会返回 404；但仍不应把授权证明或密钥放进模型目录。通过后台切换时，公开文件 allowlist 会立即原子更新；已经打开的公共房间刷新页面后加载新形象。直接替换当前模型的同名文件时仍建议重启服务并刷新浏览器缓存。
 
 ## 上线证据
 

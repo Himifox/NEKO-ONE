@@ -43,6 +43,12 @@ class RoomControlsUpdate(BaseModel):
     proactive_enabled: bool
 
 
+class AvatarUpdate(BaseModel):
+    enabled: bool = True
+    model_name: str | None = Field(default=None, max_length=128)
+    model_file: str | None = Field(default=None, max_length=128)
+
+
 class RetentionUpdate(BaseModel):
     message_days: int = Field(ge=1, le=3650)
     visitor_days: int = Field(ge=1, le=3650)
@@ -130,9 +136,58 @@ async def state(request: Request) -> dict:
             "active_generation": (
                 active_generation.snapshot() if active_generation else None
             ),
+            "avatar": {
+                "current": request.app.state.public_avatar.manifest(),
+                "models": request.app.state.public_avatar.installed_models(),
+            },
         }
     )
     return snapshot
+
+
+@router.put("/avatar")
+async def update_avatar(payload: AvatarUpdate, request: Request) -> dict:
+    _auth(request, write=True)
+    avatar = request.app.state.public_avatar
+    previous = {
+        "enabled": avatar.manifest()["enabled"],
+        "model_name": avatar.model_name,
+        "model_file": avatar.model_file,
+    }
+    if payload.enabled:
+        try:
+            manifest = avatar.configure(
+                model_name=payload.model_name or "",
+                model_file=payload.model_file or "",
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"model cannot be activated: {exc}"
+            ) from exc
+        selection = {
+            "enabled": True,
+            "model_name": avatar.model_name,
+            "model_file": avatar.model_file,
+        }
+    else:
+        manifest = avatar.disable()
+        selection = {"enabled": False}
+    try:
+        await request.app.state.room_service.store.set_setting(
+            "live2d_model", selection, actor_id="admin"
+        )
+    except Exception:
+        avatar.restore(previous)
+        request.app.state.live2d_static.replace_allowed_paths(
+            avatar.public_asset_paths()
+        )
+        raise
+    request.app.state.live2d_static.replace_allowed_paths(avatar.public_asset_paths())
+    return {
+        "ok": True,
+        "current": manifest,
+        "models": avatar.installed_models(),
+    }
 
 
 @router.put("/persona")

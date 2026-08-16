@@ -6,7 +6,7 @@
     <meta name="referrer" content="same-origin" />
     <meta name="color-scheme" content="dark" />
     <title>NEKO 公共房间管理</title>
-    <link rel="stylesheet" href="/admin-assets/styles.css?v=2" />
+    <link rel="stylesheet" href="/admin-assets/styles.css?v=3" />
   </head>
   <body>
     <div class="ambient ambient-one" aria-hidden="true"></div>
@@ -58,9 +58,10 @@
             <nav class="side-nav" aria-label="管理区域">
               <a href="#overview"><span>01</span>运行总览</a>
               <a href="#room-operations"><span>02</span>房间控制</a>
-              <a href="#identity-memory"><span>03</span>人格与记忆</a>
-              <a href="#moderation"><span>04</span>内容治理</a>
-              <a href="#data-lifecycle"><span>05</span>数据生命周期</a>
+              <a href="#avatar-configuration"><span>03</span>形象配置</a>
+              <a href="#identity-memory"><span>04</span>人格与记忆</a>
+              <a href="#moderation"><span>05</span>内容治理</a>
+              <a href="#data-lifecycle"><span>06</span>数据生命周期</a>
             </nav>
 
             <div class="sidebar-footer">
@@ -169,9 +170,45 @@
               </div>
             </section>
 
+            <section id="avatar-configuration" class="console-section">
+              <div class="section-heading">
+                <div><p class="section-index">03 / AVATAR</p><h2>Live2D 形象配置</h2></div>
+                <p>仅列出服务器受控目录中校验通过的模型；切换后刷新公共房间即可加载新形象。</p>
+              </div>
+
+              <div class="avatar-grid">
+                <article class="panel avatar-current-card">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">CURRENT AVATAR</p><h3>当前公开形象</h3></div>
+                    <span id="avatar-status" class="status-chip">读取中</span>
+                  </div>
+                  <div class="avatar-orbit" aria-hidden="true"><span>N</span></div>
+                  <strong id="avatar-current-name" class="avatar-name">尚未配置</strong>
+                  <p id="avatar-current-file" class="avatar-file">公共房间将以纯文本模式运行</p>
+                </article>
+
+                <article class="panel avatar-config-card">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">MODEL LIBRARY</p><h3>切换服务器模型</h3></div>
+                    <span id="avatar-model-count" class="status-chip">0 个可用</span>
+                  </div>
+                  <p class="panel-description">模型必须位于 <code>NEKO_PUBLIC_DATA_DIR/live2d/模型名/</code>，并包含完整且有效的 <code>.model3.json</code> 资产引用。</p>
+                  <label class="field" for="avatar-model">
+                    <span>已安装模型</span>
+                    <select id="avatar-model"></select>
+                  </label>
+                  <p id="avatar-library-state" class="inline-state"></p>
+                  <div class="panel-actions split-actions">
+                    <button id="save-avatar" class="button primary" type="button">启用所选模型</button>
+                    <button id="disable-avatar" class="button secondary" type="button">停用 Live2D</button>
+                  </div>
+                </article>
+              </div>
+            </section>
+
             <section id="identity-memory" class="console-section">
               <div class="section-heading">
-                <div><p class="section-index">03 / IDENTITY</p><h2>人格与记忆</h2></div>
+                <div><p class="section-index">04 / IDENTITY</p><h2>人格与记忆</h2></div>
                 <p>Persona 是受保护的身份根；访客内容只能经过人工审核后进入共享记忆。</p>
               </div>
 
@@ -199,7 +236,7 @@
 
             <section id="moderation" class="console-section">
               <div class="section-heading">
-                <div><p class="section-index">04 / MODERATION</p><h2>内容治理</h2></div>
+                <div><p class="section-index">05 / MODERATION</p><h2>内容治理</h2></div>
                 <p>访客身份、长期记忆和公开消息分别处理，避免误删或越权。</p>
               </div>
 
@@ -226,7 +263,7 @@
 
             <section id="data-lifecycle" class="console-section">
               <div class="section-heading">
-                <div><p class="section-index">05 / DATA</p><h2>数据生命周期</h2></div>
+                <div><p class="section-index">06 / DATA</p><h2>数据生命周期</h2></div>
                 <p>调整保留周期属于高影响操作；立即清理会永久删除到期数据。</p>
               </div>
 
@@ -260,6 +297,6 @@
         </div>
       </section>
     </main>
-    <script src="/admin-assets/app.js?v=2" defer></script>
+    <script src="/admin-assets/app.js?v=3" defer></script>
   </body>
 </html>

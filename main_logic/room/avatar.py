@@ -77,6 +77,41 @@ class PublicAvatar:
             return "invalid"
         return None
 
+    def configure(self, *, model_name: str, model_file: str) -> dict[str, Any]:
+        """Select an installed model after validating its complete asset graph."""
+
+        previous = (self.model_name, self.model_file, self.configuration_error)
+        self.model_name = str(model_name or "").strip()
+        self.model_file = str(model_file or "").strip()
+        self.configuration_error = self._configuration_error()
+        manifest = self.manifest()
+        if manifest["status"] != "ready":
+            self.model_name, self.model_file, self.configuration_error = previous
+            raise ValueError(str(manifest["status"]))
+        return manifest
+
+    def disable(self) -> dict[str, Any]:
+        self.model_name = ""
+        self.model_file = ""
+        self.configuration_error = None
+        return self.manifest()
+
+    def restore(self, selection: Any) -> dict[str, Any]:
+        """Apply a trusted persisted selection, falling back to env configuration."""
+
+        if not isinstance(selection, dict):
+            return self.manifest()
+        if selection.get("enabled") is False:
+            return self.disable()
+        try:
+            return self.configure(
+                model_name=str(selection.get("model_name") or ""),
+                model_file=str(selection.get("model_file") or ""),
+            )
+        except ValueError:
+            # A removed or damaged model must not prevent the room from starting.
+            return self.disable()
+
     @property
     def model_path(self) -> Path | None:
         if not self.model_name or not self.model_file or self.configuration_error:
@@ -116,7 +151,7 @@ class PublicAvatar:
             if not isinstance(references, dict):
                 return None
             model_root = model_path.parent.resolve()
-            assets = {self.model_file}
+            assets = {model_path.name}
 
             def include(value: Any) -> bool:
                 relative = self._reference_path(model_root, value)
@@ -157,6 +192,56 @@ class PublicAvatar:
             return assets
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
+
+    def installed_models(self) -> list[dict[str, Any]]:
+        """Return safe descriptors found directly below the private model root."""
+
+        models: list[dict[str, Any]] = []
+        try:
+            model_dirs = sorted(
+                (
+                    entry
+                    for entry in self.assets_root.iterdir()
+                    if entry.is_dir() and MODEL_COMPONENT.fullmatch(entry.name)
+                ),
+                key=lambda entry: entry.name.lower(),
+            )[:100]
+        except OSError:
+            return models
+        for model_dir in model_dirs:
+            try:
+                if not model_dir.resolve().is_relative_to(self.assets_root):
+                    continue
+            except OSError:
+                continue
+            try:
+                descriptors = sorted(model_dir.glob("*.model3.json"))[:20]
+            except OSError:
+                continue
+            for descriptor in descriptors:
+                try:
+                    descriptor_inside_model = descriptor.resolve().is_relative_to(
+                        model_dir.resolve()
+                    )
+                except OSError:
+                    descriptor_inside_model = False
+                valid = bool(
+                    descriptor_inside_model and self._model_assets(descriptor) is not None
+                )
+                models.append(
+                    {
+                        "model_name": model_dir.name,
+                        "model_file": descriptor.name,
+                        "valid": valid,
+                        "active": bool(
+                            valid
+                            and model_dir.name == self.model_name
+                            and descriptor.name == self.model_file
+                            and self.manifest()["enabled"]
+                        ),
+                    }
+                )
+        return models
 
     def public_asset_paths(self) -> set[str]:
         model_path = self.model_path
