@@ -178,10 +178,13 @@ select:disabled { color: #746b7b; cursor: not-allowed; }
 .avatar-grid { display: grid; grid-template-columns: minmax(260px, .62fr) minmax(0, 1.38fr); gap: 14px; }
 .avatar-current-card { position: relative; min-height: 310px; overflow: hidden; }
 .avatar-current-card::after { content: ""; position: absolute; right: -90px; bottom: -120px; width: 280px; height: 280px; border: 1px solid rgba(217,181,255,.08); border-radius: 50%; box-shadow: 0 0 0 44px rgba(217,181,255,.02); }
-.avatar-orbit { position: relative; z-index: 1; display: grid; width: 104px; height: 104px; margin: 30px 0 24px; place-items: center; border: 1px solid rgba(194,140,244,.23); border-radius: 50%; background: radial-gradient(circle, rgba(194,140,244,.2), rgba(194,140,244,.03) 64%, transparent 65%); box-shadow: 0 0 52px rgba(163,99,222,.12); }
-.avatar-orbit::before, .avatar-orbit::after { content: ""; position: absolute; inset: 12px; border: 1px dashed rgba(224,199,249,.16); border-radius: 50%; transform: rotate(20deg); }
-.avatar-orbit::after { inset: -10px 18px; transform: rotate(70deg); }
-.avatar-orbit span { color: #dfc2fa; font-size: 34px; font-weight: 900; }
+.avatar-preview-stage { position: relative; z-index: 1; width: 100%; height: 210px; margin: 8px 0 20px; overflow: hidden; border: 1px solid rgba(194,140,244,.16); border-radius: 17px; background: radial-gradient(circle at 50% 72%, rgba(194,140,244,.16), rgba(194,140,244,.025) 53%, transparent 72%); box-shadow: inset 0 -30px 60px rgba(0,0,0,.12); }
+.avatar-preview-stage::after { content: ""; position: absolute; right: 12%; bottom: 13px; left: 12%; height: 1px; background: linear-gradient(90deg, transparent, rgba(221,190,250,.25), transparent); box-shadow: 0 0 22px rgba(194,140,244,.35); pointer-events: none; }
+#avatar-preview-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.avatar-preview-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; color: #dfc2fa; text-align: center; }
+.avatar-preview-placeholder span { display: grid; width: 58px; height: 58px; place-items: center; border: 1px solid rgba(224,199,249,.2); border-radius: 50%; background: rgba(194,140,244,.08); font-size: 24px; font-weight: 900; }
+.avatar-preview-placeholder small { max-width: 190px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.avatar-preview-placeholder[data-failed="true"] span { color: var(--danger); border-color: rgba(255,140,158,.2); background: rgba(126,43,58,.14); }
 .avatar-name { position: relative; z-index: 1; display: block; overflow-wrap: anywhere; font-size: 18px; }
 .avatar-file { position: relative; z-index: 1; margin: 7px 0 0; color: var(--muted); overflow-wrap: anywhere; font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; line-height: 1.55; }
 .avatar-config-card { display: flex; flex-direction: column; justify-content: center; }

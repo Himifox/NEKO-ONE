@@ -6,7 +6,7 @@
     <meta name="referrer" content="same-origin" />
     <meta name="color-scheme" content="dark" />
     <title>NEKO 公共房间管理</title>
-    <link rel="stylesheet" href="/admin-assets/styles.css?v=3" />
+    <link rel="stylesheet" href="/admin-assets/styles.css?v=4" />
   </head>
   <body>
     <div class="ambient ambient-one" aria-hidden="true"></div>
@@ -182,7 +182,12 @@
                     <div><p class="panel-kicker">CURRENT AVATAR</p><h3>当前公开形象</h3></div>
                     <span id="avatar-status" class="status-chip">读取中</span>
                   </div>
-                  <div class="avatar-orbit" aria-hidden="true"><span>N</span></div>
+                  <div id="avatar-preview-stage" class="avatar-preview-stage" aria-label="当前 Live2D 模型预览">
+                    <canvas id="avatar-preview-canvas"></canvas>
+                    <div id="avatar-preview-placeholder" class="avatar-preview-placeholder">
+                      <span>N</span><small>正在读取当前模型</small>
+                    </div>
+                  </div>
                   <strong id="avatar-current-name" class="avatar-name">尚未配置</strong>
                   <p id="avatar-current-file" class="avatar-file">公共房间将以纯文本模式运行</p>
                 </article>
@@ -297,6 +302,11 @@
         </div>
       </section>
     </main>
-    <script src="/admin-assets/app.js?v=4" defer></script>
+    <script src="/runtime/live2dcubismcore.min.js"></script>
+    <script src="/runtime/pixi-unsafe-eval-shim.js"></script>
+    <script src="/runtime/pixi.min.js"></script>
+    <script src="/runtime/pixi-live2d-display-cubism4.min.js"></script>
+    <script src="/admin-assets/avatar-preview.js?v=2" defer></script>
+    <script src="/admin-assets/app.js?v=5" defer></script>
   </body>
 </html>

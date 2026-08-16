@@ -121,9 +121,23 @@ def main() -> None:
     _assert_frontend_dom_contract(
         "frontend/public-admin/index.html", "frontend/public-admin/app.js"
     )
+    _assert_frontend_dom_contract(
+        "frontend/public-admin/index.html",
+        "frontend/public-admin/avatar-preview.js",
+    )
     admin_page = (ROOT / "frontend" / "public-admin" / "index.html").read_text(
         "utf-8"
     )
+    admin_runtime_order = (
+        "/runtime/live2dcubismcore.min.js",
+        "/runtime/pixi-unsafe-eval-shim.js",
+        "/runtime/pixi.min.js",
+        "/runtime/pixi-live2d-display-cubism4.min.js",
+        "/admin-assets/avatar-preview.js",
+        "/admin-assets/app.js",
+    )
+    admin_runtime_positions = [admin_page.index(token) for token in admin_runtime_order]
+    assert admin_runtime_positions == sorted(admin_runtime_positions)
     login_form = re.search(
         r'<form\s+id="login-form"[^>]*>.*?</form>', admin_page, re.DOTALL
     )

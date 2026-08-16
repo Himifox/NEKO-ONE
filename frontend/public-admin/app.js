@@ -121,6 +121,7 @@
     avatarStatus.dataset.state = currentAvatar.enabled ? "ready" : "disabled";
     document.getElementById("avatar-current-name").textContent = currentAvatar.model_name || "尚未配置";
     document.getElementById("avatar-current-file").textContent = currentAvatar.model_url || "公共房间将以纯文本模式运行";
+    globalThis.NekoAdminAvatar?.show(currentAvatar);
     const avatarManagementAvailable = avatar.management_available !== false;
     document.getElementById("avatar-model-count").textContent = avatarManagementAvailable
       ? `${avatarModels.length} 个可用`
