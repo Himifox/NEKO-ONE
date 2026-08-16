@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 import os
 import re
 from contextlib import asynccontextmanager
@@ -25,6 +26,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_ROOT = REPO_ROOT / "frontend" / "public-room"
 ADMIN_FRONTEND_ROOT = REPO_ROOT / "frontend" / "public-admin"
 RUNTIME_ROOT = REPO_ROOT / "static" / "libs"
+
+# Windows does not consistently register WebP in its system MIME database.
+mimetypes.add_type("image/webp", ".webp")
 
 
 class AllowlistedStaticFiles(StaticFiles):

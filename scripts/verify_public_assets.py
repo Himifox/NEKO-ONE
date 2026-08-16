@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from PIL import Image
+
 from main_logic.room.avatar import PublicAvatar
 
 
@@ -107,6 +109,32 @@ def main() -> None:
     assert not forbidden, f"unaudited model, voice, or font assets: {forbidden}"
 
     page = (ROOT / "frontend" / "public-room" / "index.html").read_text("utf-8")
+    room_periods = ("morning", "noon", "afternoon", "evening", "late-night")
+    for period in room_periods:
+        room_background = (
+            ROOT
+            / "frontend"
+            / "public-room"
+            / "media"
+            / f"neko-room-{period}.webp"
+        )
+        assert room_background.is_file(), period
+        assert room_background.stat().st_size <= 300 * 1024, period
+        with Image.open(room_background) as background_image:
+            width, height = background_image.size
+            assert width >= 1600 and height >= 900, period
+            assert 1.7 <= width / height <= 1.85, period
+    assert "/assets/room-theme.js" in page
+    room_styles = (ROOT / "frontend" / "public-room" / "styles.css").read_text(
+        "utf-8"
+    )
+    for period in room_periods:
+        assert f'url("./media/neko-room-{period}.webp")' in room_styles
+    room_theme_script = (
+        ROOT / "frontend" / "public-room" / "room-theme.js"
+    ).read_text("utf-8")
+    for boundary in ("hour >= 5", "hour >= 11", "hour >= 14", "hour >= 18"):
+        assert boundary in room_theme_script
     ordered = (
         "/runtime/live2dcubismcore.min.js",
         "/runtime/pixi.min.js",
