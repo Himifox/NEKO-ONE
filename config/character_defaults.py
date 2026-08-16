@@ -43,10 +43,10 @@ DEFAULT_LIVE2D_MODEL_PATH = ""
 BUILTIN_LIVE2D_MODEL_NAMES: tuple[str, ...] = ()
 
 DEFAULT_LANLAN_TEMPLATE = {
-    "NEKO": {
+    "Lanlan": {
         "性别": "女",
         "年龄": 15,
-        "昵称": "NEKO",
+        "昵称": "Lanlan",
         "_reserved": {
             "voice_id": "",
             "system_prompt": lanlan_prompt,

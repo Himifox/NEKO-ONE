@@ -223,9 +223,9 @@
                     <div><p class="panel-kicker">PROTECTED PERSONA</p><h3>公共角色人格</h3></div>
                     <span class="status-chip secure">管理员保护</span>
                   </div>
-                  <label class="field"><span>公共角色名称</span><input id="character-name" type="text" maxlength="50" autocomplete="off" /></label>
-                  <p class="panel-description">用于前台署名、回复身份和提示词；改名不会迁移或清除既有记忆。</p>
-                  <div class="panel-actions"><button id="save-character" class="button secondary" type="button">保存角色名称</button></div>
+                  <label class="field"><span>当前公共角色</span><select id="character-name"></select></label>
+                  <p class="panel-description">切换后立即使用该角色已有的 Persona 和独立记忆；旧 test 档案会以 Lanlan 显示。</p>
+                  <div class="panel-actions"><button id="save-character" class="button secondary" type="button">切换当前角色</button></div>
                   <p id="persona-source" class="panel-description"></p>
                   <textarea id="persona" rows="16" maxlength="12000" spellcheck="false"></textarea>
                   <div class="panel-actions"><button id="save-persona" class="button primary" type="button">保存 Persona</button></div>

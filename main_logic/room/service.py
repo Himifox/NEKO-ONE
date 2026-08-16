@@ -189,9 +189,6 @@ class PublicRoomService:
         stored_cleanup = await self.store.get_setting("retention_last_result")
         if isinstance(stored_cleanup, dict):
             self.last_cleanup = stored_cleanup
-        stored_character = await self.store.get_setting("public_character", "NEKO")
-        if isinstance(stored_character, str):
-            self.engine.set_public_character_name(stored_character)
         await self._ensure_room_runtime("main")
         self._retention_task = asyncio.create_task(
             self._retention_loop(), name="public-room-retention"
@@ -209,14 +206,10 @@ class PublicRoomService:
         )
         await self._sync_proactive_task(room_id)
 
-    async def update_character_name(self, value: str) -> str:
-        """Persist the public identity while retaining the existing memory namespace."""
+    async def refresh_character_identity(self) -> str:
+        """Refresh direct mentions after the configured legacy character changes."""
 
-        name = value.strip()
-        if not name:
-            raise RoomInputError("invalid_character_name", "character name is required")
-        await self.store.set_setting("public_character", name)
-        self.engine.set_public_character_name(name)
+        name, _prompt = await self.engine.character()
         for director in self.directors.values():
             director.set_character_names(("NEKO", "猫娘", name))
         return name

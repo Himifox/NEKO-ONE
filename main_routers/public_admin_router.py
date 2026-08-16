@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from main_logic.room.admin_auth import ADMIN_COOKIE_NAME
 from main_logic.room.conversation import MAX_PUBLIC_PERSONA_CHARS
-from utils.character_name import validate_character_name
 from utils.config_manager import get_config_manager, get_reserved, set_reserved
 
 router = APIRouter(prefix="/api/v1/admin")
@@ -25,8 +24,8 @@ class PersonaUpdate(BaseModel):
     system_prompt: str = Field(min_length=1, max_length=MAX_PUBLIC_PERSONA_CHARS)
 
 
-class CharacterUpdate(BaseModel):
-    display_name: str = Field(min_length=1, max_length=50)
+class CharacterSelectionUpdate(BaseModel):
+    character: str = Field(min_length=1, max_length=50)
 
 
 class StatusUpdate(BaseModel):
@@ -112,7 +111,7 @@ async def logout(request: Request, response: Response) -> dict:
     return {"ok": True}
 
 
-async def _persona(service) -> tuple[str, str]:
+async def _persona(service) -> tuple[str, str, str, list[dict[str, str]]]:
     manager = get_config_manager()
     characters = await manager.aload_characters()
     current = characters.get("当前猫娘") or next(iter(characters.get("猫娘", {})), "")
@@ -122,7 +121,17 @@ async def _persona(service) -> tuple[str, str]:
     )
     _runtime_character, effective = await service.engine.character()
     source = "builtin_default" if not stored or is_default_prompt(stored) else "custom"
-    return effective, source
+    options: list[dict[str, str]] = []
+    for name, payload in characters.get("猫娘", {}).items():
+        prompt = str(
+            get_reserved(payload, "system_prompt", default="", legacy_keys=("system_prompt",))
+            or ""
+        )
+        label = name
+        if name.casefold() == "test" and (not prompt or is_default_prompt(prompt)):
+            label = "Lanlan（旧默认档案）"
+        options.append({"id": name, "label": label})
+    return current, effective, source, options
 
 
 @router.get("/state")
@@ -130,12 +139,14 @@ async def state(request: Request) -> dict:
     _auth(request)
     snapshot = await request.app.state.room_service.store.admin_snapshot()
     service = request.app.state.room_service
-    persona, persona_source = await _persona(service)
+    active_character, persona, persona_source, character_options = await _persona(service)
     character, _prompt = await service.engine.character()
     active_generation = service.active_generation("main")
     snapshot.update(
         {
             "character": character,
+            "active_character": active_character,
+            "character_options": character_options,
             "persona": persona,
             "persona_source": persona_source,
             "online": await service.hub.online_count("main"),
@@ -204,16 +215,20 @@ async def update_avatar(payload: AvatarUpdate, request: Request) -> dict:
 
 
 @router.put("/character")
-async def update_character(payload: CharacterUpdate, request: Request) -> dict:
+async def update_character(payload: CharacterSelectionUpdate, request: Request) -> dict:
     _auth(request, write=True)
-    result = validate_character_name(payload.display_name, max_length=50)
-    if not result.ok:
-        raise HTTPException(status_code=422, detail="invalid public character name")
-    character = await request.app.state.room_service.update_character_name(
-        result.normalized
-    )
+    selected = payload.character.strip()
+    if not selected:
+        raise HTTPException(status_code=422, detail="invalid character")
+    manager = get_config_manager()
+    characters = await manager.aload_characters()
+    if selected not in characters.get("猫娘", {}):
+        raise HTTPException(status_code=404, detail="character is not installed")
+    characters["当前猫娘"] = selected
+    await manager.asave_characters(characters)
+    character = await request.app.state.room_service.refresh_character_identity()
     await request.app.state.room_service.store.audit(
-        "character.update", "public_identity", "main", {"display_name": character}
+        "character.select", "character", selected, {"display_name": character}
     )
     return {"ok": True, "character": character}
 
@@ -228,11 +243,10 @@ async def update_persona(payload: PersonaUpdate, request: Request) -> dict:
         raise HTTPException(status_code=409, detail="current character is missing")
     set_reserved(characters["猫娘"][current], "system_prompt", payload.system_prompt.strip())
     await manager.asave_characters(characters)
-    public_character, _prompt = await request.app.state.room_service.engine.character()
     await request.app.state.room_service.store.audit(
-        "persona.update", "public_identity", "main", {"length": len(payload.system_prompt)}
+        "persona.update", "character", current, {"length": len(payload.system_prompt)}
     )
-    return {"ok": True, "character": public_character}
+    return {"ok": True, "character": current}
 
 
 @router.put("/limits")

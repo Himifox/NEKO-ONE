@@ -6,6 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from urllib.parse import urlparse
 
+from config.prompts.prompts_chara import is_default_prompt
 from main_logic.omni_offline_client import OmniOfflineClient
 from utils.config_manager import get_config_manager
 
@@ -17,19 +18,12 @@ DeltaCallback = Callable[[str], Awaitable[None]]
 logger = logging.getLogger(__name__)
 
 MAX_PUBLIC_PERSONA_CHARS = 12000
-DEFAULT_PUBLIC_CHARACTER_NAME = "NEKO"
+DEFAULT_PUBLIC_CHARACTER_NAME = "Lanlan"
 
 
 class ConversationEngine:
     def __init__(self):
         self._config_manager = get_config_manager()
-        # The legacy character key is still used as the memory namespace and
-        # Persona storage location.  The public-facing identity must not leak
-        # that implementation detail (for example, the old default "test").
-        self._public_character_name = DEFAULT_PUBLIC_CHARACTER_NAME
-
-    def set_public_character_name(self, value: str) -> None:
-        self._public_character_name = value.strip() or DEFAULT_PUBLIC_CHARACTER_NAME
 
     async def _legacy_character(self) -> tuple[str, str, str]:
         """Resolve the legacy Persona record without exposing its key publicly."""
@@ -48,8 +42,10 @@ class ConversationEngine:
         )
 
     async def character(self) -> tuple[str, str]:
-        master_name, _legacy_character_name, base_prompt = await self._legacy_character()
-        character_name = self._public_character_name
+        master_name, legacy_character_name, base_prompt = await self._legacy_character()
+        character_name = legacy_character_name or DEFAULT_PUBLIC_CHARACTER_NAME
+        if legacy_character_name.casefold() == "test" and is_default_prompt(base_prompt):
+            character_name = DEFAULT_PUBLIC_CHARACTER_NAME
         base_prompt = base_prompt.replace("{LANLAN_NAME}", character_name).replace(
             "{MASTER_NAME}", master_name
         )
