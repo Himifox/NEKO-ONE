@@ -12,9 +12,25 @@
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
   let likeTotal = 0;
 
+  function readFollowed() {
+    try {
+      return localStorage.getItem(FOLLOW_KEY) === "1";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function writeFollowed(value) {
+    try {
+      localStorage.setItem(FOLLOW_KEY, value ? "1" : "0");
+    } catch (_) {
+      /* storage unavailable; keep in-memory state only */
+    }
+  }
+
   function renderFollow() {
     if (!follow) return;
-    const followed = localStorage.getItem(FOLLOW_KEY) === "1";
+    const followed = readFollowed();
     follow.setAttribute("aria-pressed", String(followed));
     follow.classList.toggle("is-followed", followed);
     const heart = follow.querySelector(".follow-heart");
@@ -40,8 +56,8 @@
   if (follow) {
     renderFollow();
     follow.addEventListener("click", () => {
-      const next = localStorage.getItem(FOLLOW_KEY) !== "1";
-      localStorage.setItem(FOLLOW_KEY, next ? "1" : "0");
+      const next = !readFollowed();
+      writeFollowed(next);
       renderFollow();
     });
   }
