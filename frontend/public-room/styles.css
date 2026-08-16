@@ -80,6 +80,7 @@ body::before {
     radial-gradient(rgba(63, 216, 160, .5) 1px, transparent 1px);
   background-size: 22px 22px, 22px 22px;
   background-position: 0 0, 11px 11px;
+  -webkit-mask-image: linear-gradient(90deg, #000, transparent 46%, #000);
   mask-image: linear-gradient(90deg, #000, transparent 46%, #000);
 }
 button, textarea { font: inherit; }
@@ -109,6 +110,7 @@ button { -webkit-tap-highlight-color: transparent; }
   border-radius: 22px;
   background: rgba(255, 255, 255, .78);
   box-shadow: 0 3px 0 rgba(255, 61, 146, .12), 0 18px 40px rgba(255, 120, 180, .16);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
   backdrop-filter: blur(14px) saturate(1.2);
 }
 .live-bar-brand { display: flex; min-width: 0; align-items: center; gap: 14px; }
@@ -298,6 +300,7 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   border-left: 3px solid #ff5fa8;
   border-radius: 0 14px 14px 0;
   background: linear-gradient(90deg, rgba(58, 43, 62, .72), rgba(58, 43, 62, .1));
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   color: #fff;
   pointer-events: none;
@@ -362,6 +365,7 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   background: rgba(255, 255, 255, .9);
+  -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
 }
 .chat-panel > .danmaku-header {
