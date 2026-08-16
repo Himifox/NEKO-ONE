@@ -147,6 +147,9 @@ def main() -> None:
         "frontend/public-room/index.html", "frontend/public-room/app.js"
     )
     _assert_frontend_dom_contract(
+        "frontend/public-room/index.html", "frontend/public-room/room-theme.js"
+    )
+    _assert_frontend_dom_contract(
         "frontend/public-admin/index.html", "frontend/public-admin/app.js"
     )
     _assert_frontend_dom_contract(
