@@ -10,6 +10,7 @@
   let speaking = false;
   let mouthPhase = 0;
   let soullinkRuntime = null;
+  let pointerFocus = null;
 
   function nowSeconds() {
     return performance.now() / 1000;
@@ -43,7 +44,28 @@
     for (const [parameterId, value] of Object.entries(snapshot.live2dParams)) {
       if (Number.isFinite(value)) coreModel.setParameterValueById(parameterId, value);
     }
+    // Keep the room's familiar mouse-follow behavior without letting Pixi's
+    // auto-focus overwrite Soullink's head/body animation. This runs after
+    // the expression snapshot, and releases control when the pointer leaves.
+    if (pointerFocus) {
+      coreModel.setParameterValueById("ParamEyeBallX", pointerFocus.x);
+      coreModel.setParameterValueById("ParamEyeBallY", pointerFocus.y);
+    }
     return true;
+  }
+
+  function trackPointer(event) {
+    if (!stage || !soullinkRuntime) return;
+    const bounds = stage.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    pointerFocus = {
+      x: Math.max(-1, Math.min(1, ((event.clientX - bounds.left) / bounds.width - 0.5) * 2)),
+      y: Math.max(-1, Math.min(1, (0.5 - (event.clientY - bounds.top) / bounds.height) * 2)),
+    };
+  }
+
+  function clearPointerFocus() {
+    pointerFocus = null;
   }
 
   function showStatus(message, failed = false) {
@@ -137,6 +159,8 @@
         autoFocus: !manifest.soullink?.enabled,
       });
       app.stage.addChild(model);
+      stage.addEventListener("pointermove", trackPointer);
+      stage.addEventListener("pointerleave", clearPointerFocus);
       app.ticker.add((delta) => {
         if (applySoullink(delta)) return;
         const coreModel = model?.internalModel?.coreModel;
@@ -169,6 +193,8 @@
   window.addEventListener("pagehide", (event) => {
     if (event.persisted) return;
     resizeObserver?.disconnect();
+    stage?.removeEventListener("pointermove", trackPointer);
+    stage?.removeEventListener("pointerleave", clearPointerFocus);
     app?.destroy?.(true, { children: true, texture: true, baseTexture: true });
   });
 
