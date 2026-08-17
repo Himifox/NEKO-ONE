@@ -55,7 +55,7 @@ NEKO_PUBLIC_LIVE2D_MODEL_FILE=<model-file>.model3.json
 Soullink 只是在浏览器本地将既有情绪/语音状态持续映射到 Cubism 参数；它不读取私有记忆、服务端密钥或未在 descriptor allowlist 中声明的模型文件。为某个已授权模型生成 profile 后，才显式开启：
 
 ```powershell
-npm --prefix frontend/soullink install
+npm --prefix frontend/soullink ci
 npm --prefix frontend/soullink run profile -- <model-name>
 ```
 
@@ -67,7 +67,7 @@ NEKO_PUBLIC_SOULLINK_MOTION_STYLE=natural
 ```
 
 可用动作风格为 `natural`、`lively`、`calm` 和 `shy`。生成的
-`soullink.profile.json` 与模型一起保留在私有数据目录；仅当以上开关为 `1` 且 profile 是小于 512 KiB、包含 `parameterMap` 的 JSON 对象时，当前启用模型的 profile 才会被加入 `/live2d-assets` allowlist。
+`soullink.profile.json` 与模型一起保留在私有数据目录；仅当以上开关为 `1` 且 profile 是不超过 512 KiB、包含 `parameterMap` 的 JSON 对象时，当前启用模型的 profile 才会被加入 `/live2d-assets` allowlist。
 
 数据库中已有后台选择时会覆盖环境变量。名称和 descriptor 只能是安全文件名。服务端会解析 descriptor，拒绝路径逃逸，并确认 Moc、纹理及声明的 Physics、Pose、UserData、DisplayInfo、Expression、Motion、Sound 文件都存在；失败时保持文字聊天可用并显示明确占位状态。
 

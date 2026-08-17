@@ -18,23 +18,29 @@
 
   async function initializeSoullink(config) {
     if (!config?.enabled) return;
-    const api = globalThis.NekoSoullinkEmotion;
-    if (!api?.SoullinkRuntime || !config.profile_url) {
-      console.warn("Soullink was enabled but its browser runtime is unavailable");
-      return;
+    try {
+      const api = globalThis.NekoSoullinkEmotion;
+      if (!api?.SoullinkRuntime || !config.profile_url) {
+        throw new Error("Soullink browser runtime is unavailable");
+      }
+      const response = await fetch(config.profile_url, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`Soullink profile: ${response.status}`);
+      const profile = await response.json();
+      soullinkRuntime = new api.SoullinkRuntime({
+        profile,
+        motionStyle: api.motionStylePresets?.[config.motion_style] || api.motionStylePresets?.natural,
+      });
+      soullinkRuntime.triggerIntent({
+        emotion: "neutral",
+        intensity: 0.3,
+        contextTags: ["room-ready"],
+      }, nowSeconds());
+    } catch (error) {
+      // The approved model remains usable when its optional expression layer
+      // cannot start; Pixi auto-focus remains the graceful fallback.
+      soullinkRuntime = null;
+      console.warn("Soullink initialization failed; using native Live2D behavior", error);
     }
-    const response = await fetch(config.profile_url, { credentials: "same-origin" });
-    if (!response.ok) throw new Error(`Soullink profile: ${response.status}`);
-    const profile = await response.json();
-    soullinkRuntime = new api.SoullinkRuntime({
-      profile,
-      motionStyle: api.motionStylePresets?.[config.motion_style] || api.motionStylePresets?.natural,
-    });
-    soullinkRuntime.triggerIntent({
-      emotion: "neutral",
-      intensity: 0.3,
-      contextTags: ["room-ready"],
-    }, nowSeconds());
   }
 
   function applySoullink(delta) {
@@ -154,9 +160,9 @@
       });
       model = await PIXI.live2d.Live2DModel.from(manifest.model_url, {
         autoHitTest: true,
-        // Soullink drives gaze directly when enabled. Otherwise preserve the
-        // original cursor-follow behavior.
-        autoFocus: !manifest.soullink?.enabled,
+        // Soullink writes its values later in the frame when available. Keep
+        // Pixi's focus on so a failed optional runtime preserves cursor gaze.
+        autoFocus: true,
       });
       app.stage.addChild(model);
       stage.addEventListener("pointermove", trackPointer);
