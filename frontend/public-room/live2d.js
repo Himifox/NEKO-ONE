@@ -9,6 +9,70 @@
   let resizeObserver = null;
   let speaking = false;
   let mouthPhase = 0;
+  let soullinkRuntime = null;
+  let pointerFocus = null;
+
+  function nowSeconds() {
+    return performance.now() / 1000;
+  }
+
+  async function initializeSoullink(config) {
+    if (!config?.enabled) return;
+    try {
+      const api = globalThis.NekoSoullinkEmotion;
+      if (!api?.SoullinkRuntime || !config.profile_url) {
+        throw new Error("Soullink browser runtime is unavailable");
+      }
+      const response = await fetch(config.profile_url, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`Soullink profile: ${response.status}`);
+      const profile = await response.json();
+      soullinkRuntime = new api.SoullinkRuntime({
+        profile,
+        motionStyle: api.motionStylePresets?.[config.motion_style] || api.motionStylePresets?.natural,
+      });
+      soullinkRuntime.triggerIntent({
+        emotion: "neutral",
+        intensity: 0.3,
+        contextTags: ["room-ready"],
+      }, nowSeconds());
+    } catch (error) {
+      // The approved model remains usable when its optional expression layer
+      // cannot start; Pixi auto-focus remains the graceful fallback.
+      soullinkRuntime = null;
+      console.warn("Soullink initialization failed; using native Live2D behavior", error);
+    }
+  }
+
+  function applySoullink(delta) {
+    const coreModel = model?.internalModel?.coreModel;
+    if (!coreModel?.setParameterValueById || !soullinkRuntime) return false;
+    const snapshot = soullinkRuntime.update(nowSeconds(), Math.max(delta / 60, 1 / 240));
+    for (const [parameterId, value] of Object.entries(snapshot.live2dParams)) {
+      if (Number.isFinite(value)) coreModel.setParameterValueById(parameterId, value);
+    }
+    // Keep the room's familiar mouse-follow behavior without letting Pixi's
+    // auto-focus overwrite Soullink's head/body animation. This runs after
+    // the expression snapshot, and releases control when the pointer leaves.
+    if (pointerFocus) {
+      coreModel.setParameterValueById("ParamEyeBallX", pointerFocus.x);
+      coreModel.setParameterValueById("ParamEyeBallY", pointerFocus.y);
+    }
+    return true;
+  }
+
+  function trackPointer(event) {
+    if (!stage || !soullinkRuntime) return;
+    const bounds = stage.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    pointerFocus = {
+      x: Math.max(-1, Math.min(1, ((event.clientX - bounds.left) / bounds.width - 0.5) * 2)),
+      y: Math.max(-1, Math.min(1, (0.5 - (event.clientY - bounds.top) / bounds.height) * 2)),
+    };
+  }
+
+  function clearPointerFocus() {
+    pointerFocus = null;
+  }
 
   function showStatus(message, failed = false) {
     if (!placeholder) return;
@@ -37,6 +101,13 @@
     const supported = new Set(["neutral", "happy", "sad", "angry", "surprised"]);
     const normalized = supported.has(emotion) ? emotion : "neutral";
     try {
+      if (soullinkRuntime) {
+        soullinkRuntime.triggerIntent({
+          emotion: normalized,
+          intensity: normalized === "neutral" ? 0.3 : 0.78,
+          contextTags: ["assistant-reply"],
+        }, nowSeconds());
+      }
       const groups = model.internalModel?.settings?.motions || {};
       if (groups[normalized]?.length) {
         await model.motion(normalized);
@@ -89,10 +160,15 @@
       });
       model = await PIXI.live2d.Live2DModel.from(manifest.model_url, {
         autoHitTest: true,
+        // Soullink writes its values later in the frame when available. Keep
+        // Pixi's focus on so a failed optional runtime preserves cursor gaze.
         autoFocus: true,
       });
       app.stage.addChild(model);
+      stage.addEventListener("pointermove", trackPointer);
+      stage.addEventListener("pointerleave", clearPointerFocus);
       app.ticker.add((delta) => {
+        if (applySoullink(delta)) return;
         const coreModel = model?.internalModel?.coreModel;
         if (!coreModel?.setParameterValueById) return;
         mouthPhase += delta * 0.34;
@@ -102,6 +178,7 @@
       fitModel();
       resizeObserver = new ResizeObserver(fitModel);
       resizeObserver.observe(stage);
+      await initializeSoullink(manifest.soullink);
       placeholder.hidden = true;
       await setEmotion("neutral");
     } catch (error) {
@@ -112,13 +189,18 @@
 
   globalThis.NekoPublicAvatar = {
     setEmotion,
-    setSpeaking(value) { speaking = Boolean(value); },
+    setSpeaking(value) {
+      speaking = Boolean(value);
+      soullinkRuntime?.setVoicePlaybackActive(speaking);
+    },
     get ready() { return Boolean(model); },
   };
 
   window.addEventListener("pagehide", (event) => {
     if (event.persisted) return;
     resizeObserver?.disconnect();
+    stage?.removeEventListener("pointermove", trackPointer);
+    stage?.removeEventListener("pointerleave", clearPointerFocus);
     app?.destroy?.(true, { children: true, texture: true, baseTexture: true });
   });
 

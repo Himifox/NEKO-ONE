@@ -1,0 +1,15 @@
+{
+  "name": "neko-one-soullink-build",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node --check build.mjs && node --check generate-profile.mjs",
+    "profile": "node generate-profile.mjs"
+  },
+  "devDependencies": {
+    "@soullink-emotion/engine": "0.1.0-beta.1",
+    "@soullink-emotion/profile-generator": "0.1.0-beta.1",
+    "esbuild": "0.28.2"
+  }
+}
