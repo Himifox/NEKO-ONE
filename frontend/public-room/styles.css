@@ -471,7 +471,7 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   grid-column: 2;
   grid-row: 2;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   background: rgba(255, 255, 255, .9);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
@@ -502,7 +502,7 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   scrollbar-color: rgba(255, 95, 168, .3) transparent;
   background: radial-gradient(circle at 50% 45%, rgba(255, 120, 180, .05), transparent 44%);
 }
-.timeline:empty::before {
+.timeline[data-empty="true"]::before {
   content: "房间很安静\A和 NEKO 说第一句话吧";
   margin: auto;
   color: #7a5c72;
@@ -561,10 +561,51 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   box-shadow: 0 3px 0 rgba(200, 30, 110, .25);
 }
 
-.stream-row { margin: 0 20px 12px; color: var(--ink); }
-.stream-row strong { display: block; margin: 0 0 6px 3px; font-size: 9px; }
-.stream-row p::after { content: "▋"; color: #ff5fa8; animation: blink 1s steps(1) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
+.stream-row {
+  position: relative;
+  align-self: flex-start;
+  width: min(86%, 560px);
+  color: var(--ink);
+  animation: stream-enter .24s cubic-bezier(.2, .8, .2, 1) both;
+}
+.stream-row[hidden] { display: none; }
+.stream-row strong {
+  display: block;
+  margin: 0 0 6px 3px;
+  color: #7a5c72;
+  font-size: 9px;
+}
+.stream-row strong::after {
+  content: " · 正在回应";
+  color: #d14788;
+  letter-spacing: .08em;
+}
+.stream-row p {
+  background: linear-gradient(110deg, #fff 15%, #fff3f9 42%, #ffe3f1 50%, #fff3f9 58%, #fff 85%);
+  background-size: 240% 100%;
+  animation: stream-shimmer 2.2s linear infinite;
+}
+.stream-row p::after {
+  content: "";
+  display: inline-block;
+  width: .48em;
+  height: 1em;
+  margin-left: .22em;
+  border-radius: 999px;
+  vertical-align: -.12em;
+  background: #ff4b9b;
+  box-shadow: 0 0 10px rgba(255, 75, 155, .72);
+  animation: stream-caret .72s steps(1) infinite;
+}
+@keyframes stream-enter {
+  from { opacity: 0; transform: translateY(7px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes stream-shimmer {
+  from { background-position: 110% 0; }
+  to { background-position: -110% 0; }
+}
+@keyframes stream-caret { 50% { opacity: .2; } }
 
 .room-status {
   display: flex;
@@ -672,7 +713,7 @@ button:disabled, textarea:disabled { opacity: .45; cursor: not-allowed; transfor
   .timeline { padding: 18px 16px; }
   .message { max-width: 92%; }
   .message p, .stream-row p { font-size: 12px; }
-  .stream-row { margin-inline: 16px; }
+  .stream-row { width: min(92%, 560px); }
   .room-status { padding-inline: 16px; }
   #composer { padding: 0 16px 16px; }
   #send-button { min-width: 60px; padding-inline: 14px; }
