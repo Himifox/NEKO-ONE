@@ -9,6 +9,9 @@
   let resizeObserver = null;
   let speaking = false;
   let mouthPhase = 0;
+  let mouthTarget = 0;
+  let mouthValue = 0;
+  let hasAudioMouthSignal = false;
   let soullinkRuntime = null;
   let pointerFocus = null;
 
@@ -168,12 +171,16 @@
       stage.addEventListener("pointermove", trackPointer);
       stage.addEventListener("pointerleave", clearPointerFocus);
       app.ticker.add((delta) => {
-        if (applySoullink(delta)) return;
+        applySoullink(delta);
         const coreModel = model?.internalModel?.coreModel;
         if (!coreModel?.setParameterValueById) return;
         mouthPhase += delta * 0.34;
-        const value = speaking ? 0.18 + Math.abs(Math.sin(mouthPhase)) * 0.48 : 0;
-        coreModel.setParameterValueById("ParamMouthOpenY", value);
+        const fallback = 0.18 + Math.abs(Math.sin(mouthPhase)) * 0.48;
+        const target = speaking ? (hasAudioMouthSignal ? mouthTarget : fallback) : 0;
+        // Smooth the analyser's frame-to-frame values, then write after the
+        // optional Soullink snapshot so the audible WAV remains authoritative.
+        mouthValue += (target - mouthValue) * Math.min(1, delta * 0.22);
+        coreModel.setParameterValueById("ParamMouthOpenY", mouthValue);
       }, undefined, (PIXI.UPDATE_PRIORITY?.LOW ?? -25) - 1);
       fitModel();
       resizeObserver = new ResizeObserver(fitModel);
@@ -191,7 +198,16 @@
     setEmotion,
     setSpeaking(value) {
       speaking = Boolean(value);
+      if (!speaking) {
+        mouthTarget = 0;
+        hasAudioMouthSignal = false;
+      }
       soullinkRuntime?.setVoicePlaybackActive?.(speaking);
+    },
+    setMouthOpen(value) {
+      if (!speaking || !Number.isFinite(value)) return;
+      hasAudioMouthSignal = true;
+      mouthTarget = Math.max(0, Math.min(1, Number(value)));
     },
     get ready() { return Boolean(model); },
   };
