@@ -11,7 +11,7 @@
     rawStream: "",
     audio: null,
     currentSpeech: null,
-    pendingSpeech: null,
+    speechQueue: [],
     muted: localStorage.getItem("neko.room.soundMuted") === "1",
     connectionState: "connecting",
     controls: { paused: false, read_only: false, proactive_enabled: false },
@@ -87,18 +87,14 @@
     }
   }
 
-  function playSharedSpeech(payload) {
+  function playNextSharedSpeech() {
+    if (state.muted || state.audio || !state.speechQueue.length) return;
+    const payload = state.speechQueue.shift();
     const url = safeSpeechUrl(payload?.url);
     if (!url) {
-      state.pendingSpeech = null;
       queueState.textContent = "语音地址无效，已拒绝播放";
+      playNextSharedSpeech();
       return;
-    }
-    state.pendingSpeech = payload;
-    if (state.muted) return;
-    if (state.audio) {
-      state.audio.pause();
-      globalThis.NekoPublicAvatar?.setSpeaking?.(false);
     }
     const audio = new Audio(url);
     state.audio = audio;
@@ -112,26 +108,32 @@
       globalThis.NekoPublicAvatar?.setSpeaking?.(false);
     };
     audio.addEventListener("ended", () => {
-      state.pendingSpeech = null;
       stop();
+      playNextSharedSpeech();
     }, { once: true });
     audio.addEventListener("error", () => {
       if (state.audio === audio) {
-        state.pendingSpeech = null;
         queueState.textContent = "语音加载失败，文字回复不受影响";
       }
       stop();
+      playNextSharedSpeech();
     }, { once: true });
-    audio.play().then(() => {
-      if (state.audio === audio) state.pendingSpeech = null;
-    }).catch(() => {
+    audio.play().catch(() => {
       if (state.audio !== audio) return;
       state.muted = true;
+      state.speechQueue.unshift(payload);
+      state.audio = null;
+      state.currentSpeech = null;
       localStorage.setItem("neko.room.soundMuted", "1");
       updateSoundButton();
       globalThis.NekoPublicAvatar?.setSpeaking?.(false);
       queueState.textContent = "浏览器已阻止自动播放，点击“声音：关”后重试";
     });
+  }
+
+  function playSharedSpeech(payload) {
+    state.speechQueue.push(payload);
+    playNextSharedSpeech();
   }
 
   function updateLastSeq(seq) {
@@ -390,11 +392,13 @@
     state.muted = !state.muted;
     localStorage.setItem("neko.room.soundMuted", state.muted ? "1" : "0");
     if (state.muted) {
-      if (state.currentSpeech) state.pendingSpeech = state.currentSpeech;
+      if (state.currentSpeech) state.speechQueue.unshift(state.currentSpeech);
       state.audio?.pause();
+      state.audio = null;
+      state.currentSpeech = null;
       globalThis.NekoPublicAvatar?.setSpeaking?.(false);
-    } else if (state.pendingSpeech) {
-      playSharedSpeech(state.pendingSpeech);
+    } else {
+      playNextSharedSpeech();
     }
     updateSoundButton();
   });
