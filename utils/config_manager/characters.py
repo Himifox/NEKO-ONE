@@ -112,19 +112,29 @@ class CharactersMixin:
                 if all_schema_errors:
                     logger.warning("检测到角色 _reserved 字段结构异常: %s", "; ".join(all_schema_errors))
             if migrated:
-                try:
-                    self.save_characters(character_data, character_json_path=character_json_path)
-                    logger.info("检测到旧版角色保留字段，已自动迁移到 _reserved 结构。")
-                except Exception as migrate_err:
-                    # 维护态（只读快照阶段）不能持久化，降级为 debug 日志
+                if getattr(self, "_defer_character_migration_persistence", False):
+                    # Public-room boot must remain available when the desktop
+                    # Documents root is read-only. The normalized record stays in
+                    # the process cache; explicit admin saves still persist it.
+                    with self._characters_cache_lock:
+                        self._characters_cache = deepcopy(character_data)
+                        self._characters_cache_mtime = loaded_mtime
+                        self._characters_cache_path = character_json_path
+                        self._characters_dirty = True
+                else:
                     try:
-                        from utils.local_write_guard import LocalWriteUnavailable as MaintenanceModeError
-                    except Exception:
-                        MaintenanceModeError = None
-                    if MaintenanceModeError is not None and isinstance(migrate_err, MaintenanceModeError):
-                        logger.debug("角色保留字段迁移在只读阶段跳过持久化: %s", migrate_err)
-                    else:
-                        logger.warning("自动迁移角色保留字段后写回失败: %s", migrate_err)
+                        self.save_characters(character_data, character_json_path=character_json_path)
+                        logger.info("检测到旧版角色保留字段，已自动迁移到 _reserved 结构。")
+                    except Exception as migrate_err:
+                        # 维护态（只读快照阶段）不能持久化，降级为 debug 日志
+                        try:
+                            from utils.local_write_guard import LocalWriteUnavailable as MaintenanceModeError
+                        except Exception:
+                            MaintenanceModeError = None
+                        if MaintenanceModeError is not None and isinstance(migrate_err, MaintenanceModeError):
+                            logger.debug("角色保留字段迁移在只读阶段跳过持久化: %s", migrate_err)
+                        else:
+                            logger.warning("自动迁移角色保留字段后写回失败: %s", migrate_err)
             else:
                 with self._characters_cache_lock:
                     self._characters_cache = deepcopy(character_data)
