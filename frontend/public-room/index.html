@@ -75,10 +75,11 @@
           <span class="danmaku-hint">实时滚动</span>
         </header>
 
-        <div id="timeline" class="timeline" role="log" aria-live="polite" aria-relevant="additions"></div>
-        <div id="stream-row" class="stream-row" hidden>
-          <strong>NEKO</strong>
-          <p id="stream-text"></p>
+        <div id="timeline" class="timeline" data-empty="true" role="log" aria-live="polite" aria-relevant="additions">
+          <div id="stream-row" class="stream-row" hidden>
+            <strong>NEKO</strong>
+            <p id="stream-text"></p>
+          </div>
         </div>
 
         <div class="room-status">
@@ -108,7 +109,7 @@
     <script src="/runtime/pixi-live2d-display-cubism4.min.js"></script>
     <script src="/runtime/soullink-emotion-engine.min.js"></script>
     <script src="/assets/live2d.js?v=9" defer></script>
-    <script src="/assets/app.js?v=4" defer></script>
+    <script src="/assets/app.js?v=5" defer></script>
     <script src="/assets/room-interactions.js?v=1" defer></script>
     <script src="/assets/cursor-tracker.js?v=1" defer></script>
   </body>

@@ -191,9 +191,10 @@
   function resetReplay(seq) {
     state.lastSeq = Math.max(0, Number(seq) || 0);
     state.rendered.clear();
-    timeline.replaceChildren();
+    timeline.replaceChildren(streamRow);
     streamRow.hidden = true;
     state.rawStream = "";
+    updateTimelineEmptyState();
   }
 
   function requestFullResync() {
@@ -219,6 +220,33 @@
     timeline.scrollTop = timeline.scrollHeight;
   }
 
+  function updateTimelineEmptyState() {
+    const hasMessages = Boolean(timeline.querySelector(".message"));
+    timeline.dataset.empty = hasMessages || !streamRow.hidden ? "false" : "true";
+  }
+
+  function followLatestAfterLayout(followLatest) {
+    if (!followLatest) return;
+    requestAnimationFrame(scrollTimelineToLatest);
+  }
+
+  function renderStream() {
+    const followLatest = timelineIsAtLatest();
+    displayStream(state.rawStream);
+    streamRow.hidden = false;
+    updateTimelineEmptyState();
+    followLatestAfterLayout(followLatest);
+  }
+
+  function clearStream() {
+    const followLatest = timelineIsAtLatest();
+    streamRow.hidden = true;
+    state.rawStream = "";
+    streamText.textContent = "";
+    updateTimelineEmptyState();
+    followLatestAfterLayout(followLatest);
+  }
+
   function renderMessage(message) {
     if (!message || state.rendered.has(message.id)) return;
     const followLatest = timelineIsAtLatest();
@@ -238,7 +266,8 @@
     const body = document.createElement("p");
     body.textContent = message.content || "";
     article.append(header, body);
-    timeline.append(article);
+    timeline.insertBefore(article, streamRow);
+    updateTimelineEmptyState();
     if (followLatest) scrollTimelineToLatest();
   }
 
@@ -280,6 +309,7 @@
         if (payload.status === "hidden") {
           message?.remove();
           state.rendered.delete(payload.message_id);
+          updateTimelineEmptyState();
         } else if (payload.status === "visible" && payload.message) {
           renderMessage(payload.message);
         }
@@ -304,17 +334,15 @@
         break;
       case "stream.started":
         state.rawStream = "";
-        streamText.textContent = "";
-        streamRow.hidden = false;
+        renderStream();
         break;
       case "stream.delta":
         state.rawStream += payload.delta || "";
-        displayStream(state.rawStream);
+        renderStream();
         break;
       case "stream.snapshot":
         state.rawStream = payload.text || "";
-        displayStream(state.rawStream);
-        streamRow.hidden = false;
+        renderStream();
         break;
       case "avatar.state":
         globalThis.NekoPublicAvatar?.setEmotion?.(payload.emotion || "neutral");
@@ -326,14 +354,10 @@
         queueState.textContent = "文字回复已完成，语音暂不可用";
         break;
       case "stream.completed":
-        streamRow.hidden = true;
-        state.rawStream = "";
-        streamText.textContent = "";
+        clearStream();
         break;
       case "stream.failed":
-        streamRow.hidden = true;
-        state.rawStream = "";
-        streamText.textContent = "";
+        clearStream();
         queueState.textContent = ({
           empty_response: "模型没有生成可显示的回复，请稍后再试",
           timeout: "回复服务响应超时，消息已保留，请稍后再试",
