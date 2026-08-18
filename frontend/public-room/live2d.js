@@ -12,6 +12,7 @@
   let mouthTarget = 0;
   let mouthValue = 0;
   let hasAudioMouthSignal = false;
+  let lastAudibleMouthAt = 0;
   let soullinkRuntime = null;
   let pointerFocus = null;
 
@@ -180,8 +181,12 @@
         const coreModel = model?.internalModel?.coreModel;
         if (!coreModel?.setParameterValueById) return;
         mouthPhase += delta * 0.34;
-        const fallback = 0.18 + Math.abs(Math.sin(mouthPhase)) * 0.48;
-        const target = speaking ? (hasAudioMouthSignal ? mouthTarget : fallback) : 0;
+        const fallback = 0.1 + Math.abs(Math.sin(mouthPhase)) * 0.2;
+        const audioIsActive = hasAudioMouthSignal
+          && nowSeconds() - lastAudibleMouthAt < 0.42;
+        // A sentence contains natural quiet gaps. Keep a subtle speaking motion
+        // through those gaps; only the audio element's ended event may close it.
+        const target = speaking ? (audioIsActive ? mouthTarget : fallback) : 0;
         // Smooth the analyser's frame-to-frame values, then write after the
         // optional Soullink snapshot so the audible WAV remains authoritative.
         mouthValue += (target - mouthValue) * Math.min(1, delta * 0.22);
@@ -206,6 +211,7 @@
       if (!speaking) {
         mouthTarget = 0;
         hasAudioMouthSignal = false;
+        lastAudibleMouthAt = 0;
       }
       soullinkRuntime?.setVoicePlaybackActive?.(speaking);
     },
@@ -213,6 +219,7 @@
       if (!speaking || !Number.isFinite(value)) return;
       hasAudioMouthSignal = true;
       mouthTarget = Math.max(0, Math.min(1, Number(value)));
+      if (mouthTarget > 0.015) lastAudibleMouthAt = nowSeconds();
     },
     get ready() { return Boolean(model); },
   };
