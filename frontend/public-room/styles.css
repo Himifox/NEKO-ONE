@@ -19,6 +19,9 @@
   --room-vignette: radial-gradient(ellipse at 50% 62%, transparent 30%, rgba(255, 150, 200, .06) 70%, rgba(180, 120, 190, .16) 100%);
   --room-glow: #ff8fc0;
   --room-glow-opacity: .28;
+  --room-ambient-fabric: rgba(112, 57, 94, .22);
+  --room-ambient-fabric-edge: rgba(255, 222, 239, .2);
+  --room-ambient-light: rgba(255, 228, 177, .32);
   --page-orb: rgba(255, 122, 184, .16);
 }
 
@@ -273,6 +276,111 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   background: var(--room-glow);
   filter: blur(110px);
   opacity: var(--room-glow-opacity);
+}
+.room-ambience {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.room-light-pool {
+  position: absolute;
+  top: -34%;
+  left: 51%;
+  width: 48%;
+  height: 86%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 20%, var(--room-ambient-light), transparent 67%);
+  filter: blur(16px);
+  opacity: .72;
+  transform-origin: 50% 0;
+  animation: room-light-breathe 10s ease-in-out -3s infinite alternate;
+  will-change: opacity, transform;
+}
+.room-curtain {
+  position: absolute;
+  top: -7%;
+  width: 23%;
+  height: 114%;
+  border-radius: 0 0 44% 8%;
+  background: linear-gradient(90deg, var(--room-ambient-fabric), var(--room-ambient-fabric-edge) 42%, transparent 96%);
+  box-shadow: inset -14px 0 22px rgba(74, 36, 62, .14);
+  opacity: .78;
+  transform-origin: 50% 0;
+  animation: room-curtain-sway var(--ambient-sway-duration) cubic-bezier(.42, 0, .3, 1) var(--ambient-sway-delay) infinite alternate;
+  will-change: transform;
+}
+.room-curtain::after {
+  content: "";
+  position: absolute;
+  inset: 0 13% 0 20%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .12), transparent);
+  opacity: .7;
+}
+.room-curtain-left {
+  left: -8%;
+  --ambient-sway-duration: 15.6s;
+  --ambient-sway-delay: -8.2s;
+}
+.room-curtain-right {
+  right: -8%;
+  border-radius: 0 0 8% 44%;
+  background: linear-gradient(270deg, var(--room-ambient-fabric), var(--room-ambient-fabric-edge) 42%, transparent 96%);
+  box-shadow: inset 14px 0 22px rgba(74, 36, 62, .14);
+  --ambient-sway-duration: 18.4s;
+  --ambient-sway-delay: -3.7s;
+}
+.room-lamp {
+  position: absolute;
+  z-index: 2;
+  top: -4px;
+  left: 69%;
+  width: 48px;
+  height: 104px;
+  transform-origin: 50% 0;
+  animation: room-lamp-sway 8.8s cubic-bezier(.42, 0, .35, 1) -1.8s infinite alternate;
+  will-change: transform;
+}
+.room-lamp::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 63px;
+  border-radius: 999px;
+  background: rgba(68, 47, 61, .55);
+  transform: translateX(-50%);
+}
+.room-lamp::after {
+  content: "";
+  position: absolute;
+  bottom: 15px;
+  left: 50%;
+  width: 40px;
+  height: 22px;
+  border: 2px solid rgba(255, 248, 221, .74);
+  border-radius: 52% 52% 38% 38%;
+  background: linear-gradient(180deg, rgba(255, 249, 214, .92), var(--room-glow));
+  box-shadow: 0 0 22px 7px var(--room-ambient-light);
+  transform: translateX(-50%);
+}
+@keyframes room-curtain-sway {
+  0% { transform: translate3d(-1.5%, 0, 0) rotate(-1.1deg) skewY(-.7deg); }
+  48% { transform: translate3d(1.4%, .4%, 0) rotate(1.5deg) skewY(.9deg); }
+  100% { transform: translate3d(-.4%, 0, 0) rotate(-.35deg) skewY(-.25deg); }
+}
+@keyframes room-lamp-sway {
+  0% { transform: rotate(-2.2deg); }
+  56% { transform: rotate(1.6deg); }
+  100% { transform: rotate(-.65deg); }
+}
+@keyframes room-light-breathe {
+  0% { opacity: .56; transform: scale(.92) translate3d(-1.8%, 0, 0); }
+  54% { opacity: .82; transform: scale(1.06) translate3d(1.4%, 1%, 0); }
+  100% { opacity: .66; transform: scale(.98) translate3d(-.4%, 0, 0); }
 }
 #live2d-canvas { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; }
 .avatar-placeholder {
@@ -573,4 +681,5 @@ button:disabled, textarea:disabled { opacity: .45; cursor: not-allowed; transfor
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+  .room-ambience { display: none; }
 }
