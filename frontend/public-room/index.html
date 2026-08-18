@@ -7,7 +7,7 @@
     <meta name="referrer" content="same-origin" />
     <title>NEKO 公共房间 · 直播中</title>
     <script src="/assets/room-theme.js?v=1"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=8" />
+    <link rel="stylesheet" href="/assets/styles.css?v=9" />
   </head>
   <body>
     <main class="room-shell">
@@ -54,6 +54,105 @@
           <div class="room-curtain room-curtain-right"></div>
           <div class="room-lamp"></div>
         </div>
+        <svg class="stage-ambience" viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          <g class="scene-set scene-morning">
+            <g class="scene-sway">
+              <path d="M112 0V88" class="scene-wire" />
+              <path d="M112 86l24 34-24 34-24-34z" fill="rgba(255,225,176,.72)" stroke="#fff5db" stroke-width="4" />
+              <path d="M112 88v64M89 120h46" stroke="rgba(255,255,255,.55)" stroke-width="2" />
+              <circle cx="145" cy="104" r="7" class="scene-glint" fill="#fff1aa" />
+            </g>
+            <g class="scene-cup">
+              <path d="M842 590h92v57c0 22-16 34-46 34s-46-12-46-34z" fill="rgba(255,244,235,.82)" stroke="#ffd2b0" stroke-width="5" />
+              <path d="M932 606h18c27 0 27 37 0 37h-16" fill="none" stroke="#ffd2b0" stroke-width="8" />
+              <path d="M860 574c-15-20 18-25 2-48M889 574c-15-20 18-25 2-48M918 574c-15-20 18-25 2-48" class="scene-steam" />
+            </g>
+            <g class="scene-motes" fill="#ffe7aa">
+              <circle cx="210" cy="180" r="5" /><circle cx="272" cy="310" r="3" />
+              <circle cx="760" cy="170" r="4" /><circle cx="692" cy="360" r="3" />
+            </g>
+          </g>
+
+          <g class="scene-set scene-noon">
+            <g class="scene-sway scene-wind-chime">
+              <path d="M866 0v73M826 88h80M841 90l8 92M891 90l-8 92M866 91v121" class="scene-wire" />
+              <path d="M836 183h26l-6 25h-14zM870 183h26l-6 25h-14z" fill="rgba(218,249,255,.82)" stroke="#a9e7f4" stroke-width="3" />
+              <circle cx="866" cy="219" r="8" fill="#fff7bb" class="scene-glint" />
+            </g>
+            <g class="scene-pinwheel">
+              <path d="M126 537v145" stroke="#d8f5ec" stroke-width="8" stroke-linecap="round" />
+              <g class="scene-spin">
+                <path d="M126 537c-52-8-63-42-43-64 31-2 47 20 43 64z" fill="#ffb8d7" />
+                <path d="M126 537c8-52 42-63 64-43 2 31-20 47-64 43z" fill="#9debd0" />
+                <path d="M126 537c52 8 63 42 43 64-31 2-47-20-43-64z" fill="#a8ddff" />
+                <path d="M126 537c-8 52-42 63-64 43-2-31 20-47 64-43z" fill="#ffe49d" />
+                <circle cx="126" cy="537" r="10" fill="#fff" />
+              </g>
+            </g>
+            <g class="scene-motes" fill="#d9fbff">
+              <circle cx="242" cy="150" r="4" /><circle cx="724" cy="248" r="5" />
+              <circle cx="640" cy="104" r="3" /><circle cx="328" cy="390" r="3" />
+            </g>
+          </g>
+
+          <g class="scene-set scene-afternoon">
+            <g class="scene-branch">
+              <path d="M0 92c74 12 132 30 196 77" fill="none" stroke="#765844" stroke-width="13" stroke-linecap="round" />
+              <g class="scene-leaf-sway" fill="#a9c77d">
+                <ellipse cx="67" cy="105" rx="15" ry="29" transform="rotate(-48 67 105)" />
+                <ellipse cx="118" cy="132" rx="15" ry="31" transform="rotate(-35 118 132)" />
+                <ellipse cx="167" cy="157" rx="14" ry="29" transform="rotate(-54 167 157)" />
+              </g>
+            </g>
+            <g class="scene-book">
+              <path d="M792 625q50-28 99 0v52q-49-24-99 0z" fill="rgba(255,246,220,.9)" stroke="#e6bd77" stroke-width="4" />
+              <path d="M891 625q50-28 99 0v52q-49-24-99 0z" fill="rgba(255,246,220,.9)" stroke="#e6bd77" stroke-width="4" />
+              <path d="M891 625v52" stroke="#d3a657" stroke-width="3" />
+              <path d="M900 626q39-18 80 2v38q-39-16-80 0z" class="scene-page" fill="#fffaf0" />
+            </g>
+            <g fill="#f5b77c">
+              <path d="M228 190q24 8 10 32-24-8-10-32z" class="scene-falling-leaf leaf-one" />
+              <path d="M742 136q22 10 6 31-22-10-6-31z" class="scene-falling-leaf leaf-two" />
+              <path d="M662 312q18 8 5 27-18-8-5-27z" class="scene-falling-leaf leaf-three" />
+            </g>
+          </g>
+
+          <g class="scene-set scene-evening">
+            <path d="M0 63q250 68 500 0t500 0" fill="none" stroke="rgba(84,61,78,.45)" stroke-width="4" />
+            <g class="scene-fairy-lights">
+              <circle cx="92" cy="80" r="9" /><circle cx="246" cy="102" r="9" />
+              <circle cx="410" cy="82" r="9" /><circle cx="590" cy="82" r="9" />
+              <circle cx="754" cy="102" r="9" /><circle cx="908" cy="80" r="9" />
+            </g>
+            <g class="scene-cup">
+              <path d="M842 590h92v57c0 22-16 34-46 34s-46-12-46-34z" fill="rgba(255,230,207,.84)" stroke="#f2ad77" stroke-width="5" />
+              <path d="M932 606h18c27 0 27 37 0 37h-16" fill="none" stroke="#f2ad77" stroke-width="8" />
+              <path d="M860 574c-15-20 18-25 2-48M889 574c-15-20 18-25 2-48M918 574c-15-20 18-25 2-48" class="scene-steam" />
+            </g>
+            <g class="scene-fireflies" fill="#ffe78b">
+              <circle cx="174" cy="290" r="5" /><circle cx="738" cy="270" r="4" />
+              <circle cx="805" cy="400" r="5" /><circle cx="278" cy="430" r="4" />
+            </g>
+          </g>
+
+          <g class="scene-set scene-late-night">
+            <g class="scene-moon-lamp">
+              <path d="M75 70c54 7 83 67 54 113-27 44-92 45-121 4 49 10 86-32 78-73-4-20-16-35-31-46z" fill="#dbe4ff" filter="drop-shadow(0 0 18px rgba(165,184,255,.8))" />
+              <path d="M50 190v82M18 272h64" stroke="#bac9ff" stroke-width="9" stroke-linecap="round" />
+            </g>
+            <g class="scene-sway scene-star-mobile">
+              <path d="M865 0v71M814 86h102M830 87v74M865 87v112M900 87v74" class="scene-wire" />
+              <path d="M830 151l7 14 16 2-12 11 4 16-15-8-15 8 4-16-12-11 16-2z" fill="#dce5ff" />
+              <path d="M865 187l7 14 16 2-12 11 4 16-15-8-15 8 4-16-12-11 16-2z" fill="#fff0ad" />
+              <path d="M900 151l7 14 16 2-12 11 4 16-15-8-15 8 4-16-12-11 16-2z" fill="#dce5ff" />
+            </g>
+            <g class="scene-night-stars" fill="#d7e0ff">
+              <circle cx="222" cy="162" r="4" /><circle cx="326" cy="96" r="3" />
+              <circle cx="700" cy="194" r="5" /><circle cx="608" cy="330" r="3" />
+              <circle cx="235" cy="412" r="4" />
+            </g>
+          </g>
+        </svg>
         <canvas id="live2d-canvas" aria-label="NEKO Live2D" width="720" height="720"></canvas>
         <div class="avatar-placeholder" id="avatar-placeholder">
           <span>NEKO</span>
