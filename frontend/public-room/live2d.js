@@ -1,6 +1,7 @@
 (() => {
   "use strict";
 
+  const TTS_MOUTH_HANDOFF_DELAY_MS = 320;
   const canvas = document.getElementById("live2d-canvas");
   const placeholder = document.getElementById("avatar-placeholder");
   const stage = canvas?.closest(".stage");
@@ -16,9 +17,29 @@
   let soullinkRuntime = null;
   let pointerFocus = null;
   let applyMouthBeforeModelUpdate = null;
+  let mouthHandoffTimer = null;
 
   function nowSeconds() {
     return performance.now() / 1000;
+  }
+
+  function ttsOwnsMouth() {
+    return speaking || mouthHandoffTimer !== null;
+  }
+
+  function cancelMouthHandoff() {
+    if (mouthHandoffTimer === null) return;
+    clearTimeout(mouthHandoffTimer);
+    mouthHandoffTimer = null;
+  }
+
+  function scheduleSoullinkMouthHandoff() {
+    cancelMouthHandoff();
+    mouthHandoffTimer = setTimeout(() => {
+      mouthHandoffTimer = null;
+      if (speaking) return;
+      soullinkRuntime?.setLipSyncEnabled?.(true);
+    }, TTS_MOUTH_HANDOFF_DELAY_MS);
   }
 
   async function initializeSoullink(config) {
@@ -35,10 +56,10 @@
         profile,
         motionStyle: api.motionStylePresets?.[config.motion_style] || api.motionStylePresets?.natural,
       });
-      // Public-room audio has an actual Web Audio analyser. Keep Soullink for
-      // emotion and motion only; its synthetic lip-sync must never compete
-      // with the audible shared TTS asset.
-      soullinkRuntime.setLipSyncEnabled?.(false);
+      // The real Web Audio analyser owns the mouth only while TTS is playing
+      // and during its short closing transition. Soullink owns it otherwise.
+      soullinkRuntime.setLipSyncEnabled?.(!ttsOwnsMouth());
+      soullinkRuntime.setVoicePlaybackActive?.(speaking);
       soullinkRuntime.triggerIntent({
         emotion: "neutral",
         intensity: 0.3,
@@ -57,7 +78,7 @@
     if (!coreModel?.setParameterValueById || !soullinkRuntime) return false;
     const snapshot = soullinkRuntime.update(nowSeconds(), Math.max(delta / 60, 1 / 240));
     for (const [parameterId, value] of Object.entries(snapshot.live2dParams)) {
-      if (parameterId === "ParamMouthOpenY") continue;
+      if (parameterId === "ParamMouthOpenY" && ttsOwnsMouth()) continue;
       if (Number.isFinite(value)) coreModel.setParameterValueById(parameterId, value);
     }
     // Keep the room's familiar mouse-follow behavior without letting Pixi's
@@ -181,7 +202,7 @@
       // makes the audible TTS amplitude the final mouth value for the frame.
       applyMouthBeforeModelUpdate = () => {
         const coreModel = model?.internalModel?.coreModel;
-        if (!coreModel?.setParameterValueById) return;
+        if (!coreModel?.setParameterValueById || !ttsOwnsMouth()) return;
         coreModel.setParameterValueById("ParamMouthOpenY", mouthValue);
       };
       model.internalModel?.on?.("beforeModelUpdate", applyMouthBeforeModelUpdate);
@@ -215,11 +236,17 @@
   globalThis.NekoPublicAvatar = {
     setEmotion,
     setSpeaking(value) {
-      speaking = Boolean(value);
-      if (!speaking) {
+      const nextSpeaking = Boolean(value);
+      if (nextSpeaking) {
+        cancelMouthHandoff();
+        speaking = true;
+        soullinkRuntime?.setLipSyncEnabled?.(false);
+      } else {
+        speaking = false;
         mouthTarget = 0;
         hasAudioMouthSignal = false;
         lastAudibleMouthAt = 0;
+        scheduleSoullinkMouthHandoff();
       }
       soullinkRuntime?.setVoicePlaybackActive?.(speaking);
     },
@@ -234,6 +261,7 @@
 
   window.addEventListener("pagehide", (event) => {
     if (event.persisted) return;
+    cancelMouthHandoff();
     resizeObserver?.disconnect();
     stage?.removeEventListener("pointermove", trackPointer);
     stage?.removeEventListener("pointerleave", clearPointerFocus);
