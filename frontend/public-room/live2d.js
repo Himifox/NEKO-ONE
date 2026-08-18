@@ -33,6 +33,10 @@
         profile,
         motionStyle: api.motionStylePresets?.[config.motion_style] || api.motionStylePresets?.natural,
       });
+      // Public-room audio has an actual Web Audio analyser. Keep Soullink for
+      // emotion and motion only; its synthetic lip-sync must never compete
+      // with the audible shared TTS asset.
+      soullinkRuntime.setLipSyncEnabled?.(false);
       soullinkRuntime.triggerIntent({
         emotion: "neutral",
         intensity: 0.3,
@@ -51,6 +55,7 @@
     if (!coreModel?.setParameterValueById || !soullinkRuntime) return false;
     const snapshot = soullinkRuntime.update(nowSeconds(), Math.max(delta / 60, 1 / 240));
     for (const [parameterId, value] of Object.entries(snapshot.live2dParams)) {
+      if (parameterId === "ParamMouthOpenY") continue;
       if (Number.isFinite(value)) coreModel.setParameterValueById(parameterId, value);
     }
     // Keep the room's familiar mouse-follow behavior without letting Pixi's
