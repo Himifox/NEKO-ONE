@@ -893,12 +893,18 @@ class PublicRoomService:
     async def _publish_speech(
         self, *, room_id: str, message_id: str, text: str
     ) -> None:
+        spoken_text = SpeechService.prepare_text(text)
+        if not spoken_text:
+            logger.info(
+                "public-room speech skipped because the reply contains no spoken text"
+            )
+            return
         try:
             payload = None
             last_error: Exception | None = None
             for attempt in range(self.tts_attempts):
                 try:
-                    payload = await self.speech.synthesize_complete(text)
+                    payload = await self.speech.synthesize_complete(spoken_text)
                     break
                 except Exception as exc:
                     last_error = exc

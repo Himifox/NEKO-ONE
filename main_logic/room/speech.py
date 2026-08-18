@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 import wave
 from datetime import datetime
@@ -28,6 +29,12 @@ from utils.tts.native_voice_registry import (
 from utils.voice_config import read_legacy_voice_id
 
 logger = logging.getLogger(__name__)
+
+_TTS_BRACKETED_CONTENT_RE = re.compile(
+    r"\([^()]*\)|（[^（）]*）|\[[^\[\]]*\]|【[^【】]*】|\{[^{}]*\}|<[^<>]*>"
+)
+_TTS_HORIZONTAL_WHITESPACE_RE = re.compile(r"[^\S\r\n]+")
+_TTS_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r" +([,，。！？!?；;、])")
 
 
 class SpeechUnavailable(RuntimeError):
@@ -169,7 +176,7 @@ class SpeechService:
         self._provider_key = None
 
     async def synthesize(self, text: str) -> dict[str, Any]:
-        normalized = str(text or "").strip()
+        normalized = self.prepare_text(text)
         if not normalized:
             raise ValueError("speech text is empty")
         async with self._synthesis_lock:
@@ -232,9 +239,12 @@ class SpeechService:
         requests short avoids losing the suffix, while the public room still
         exposes one audio asset and therefore one uninterrupted playback.
         """
-        segments = self._split_tts_segments(text)
+        prepared = self.prepare_text(text)
+        segments = self._split_tts_segments(prepared)
+        if not segments:
+            raise ValueError("speech text is empty after removing bracketed content")
         if len(segments) <= 1:
-            return await self.synthesize(text)
+            return await self.synthesize(prepared)
 
         temporary_paths: list[Path] = []
         pcm_parts: list[bytes] = []
@@ -261,6 +271,25 @@ class SpeechService:
         finally:
             for path in temporary_paths:
                 await asyncio.to_thread(path.unlink, missing_ok=True)
+
+    @staticmethod
+    def prepare_text(text: str) -> str:
+        """Remove non-spoken bracketed directions before an upstream TTS call.
+
+        Repeating the regular-expression substitution also removes nested or
+        mixed bracket pairs from the inside out. The original assistant text
+        remains untouched in room history and on the public timeline.
+        """
+        normalized = str(text or "")
+        while True:
+            cleaned = _TTS_BRACKETED_CONTENT_RE.sub(" ", normalized)
+            if cleaned == normalized:
+                break
+            normalized = cleaned
+        normalized = _TTS_HORIZONTAL_WHITESPACE_RE.sub(" ", normalized)
+        normalized = re.sub(r" *\n+ *", "\n", normalized)
+        normalized = _TTS_SPACE_BEFORE_PUNCTUATION_RE.sub(r"\1", normalized)
+        return normalized.strip()
 
     @staticmethod
     def _split_tts_segments(text: str, *, max_chars: int = 96) -> list[str]:
