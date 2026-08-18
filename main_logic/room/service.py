@@ -898,7 +898,7 @@ class PublicRoomService:
             last_error: Exception | None = None
             for attempt in range(self.tts_attempts):
                 try:
-                    payload = await self.speech.synthesize(text)
+                    payload = await self.speech.synthesize_complete(text)
                     break
                 except Exception as exc:
                     last_error = exc

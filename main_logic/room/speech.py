@@ -224,6 +224,64 @@ class SpeechService:
                 "provider": self._provider_key,
             }
 
+    async def synthesize_complete(self, text: str) -> dict[str, Any]:
+        """Synthesize punctuation-bounded requests, then publish one continuous WAV.
+
+        Some compatible realtime TTS upstreams terminate an utterance at an
+        internal punctuation boundary when given a long delta. Keeping those
+        requests short avoids losing the suffix, while the public room still
+        exposes one audio asset and therefore one uninterrupted playback.
+        """
+        segments = self._split_tts_segments(text)
+        if len(segments) <= 1:
+            return await self.synthesize(text)
+
+        temporary_paths: list[Path] = []
+        pcm_parts: list[bytes] = []
+        provider: str | None = None
+        try:
+            for segment in segments:
+                payload = await self.synthesize(segment)
+                filename = Path(str(payload["url"])).name
+                path = self.audio_root / filename
+                temporary_paths.append(path)
+                pcm_parts.append(await asyncio.to_thread(self._read_wav_pcm, path))
+                provider = str(payload.get("provider") or provider or "") or None
+
+            speech_id = f"speech_{uuid4().hex}"
+            destination = self.audio_root / f"{speech_id}.wav"
+            await asyncio.to_thread(self._write_wav, destination, b"".join(pcm_parts))
+            return {
+                "speech_id": speech_id,
+                "url": f"/speech-assets/{destination.name}",
+                "content_type": "audio/wav",
+                "sample_rate": 48000,
+                "provider": provider,
+            }
+        finally:
+            for path in temporary_paths:
+                await asyncio.to_thread(path.unlink, missing_ok=True)
+
+    @staticmethod
+    def _split_tts_segments(text: str, *, max_chars: int = 96) -> list[str]:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return []
+        segments: list[str] = []
+        buffer: list[str] = []
+        endings = frozenset("，、,；;。！？!?")
+        for character in normalized:
+            buffer.append(character)
+            if character in endings or len(buffer) >= max_chars:
+                segment = "".join(buffer).strip()
+                if segment:
+                    segments.append(segment)
+                buffer.clear()
+        tail = "".join(buffer).strip()
+        if tail:
+            segments.append(tail)
+        return segments
+
     @staticmethod
     def _as_pcm_bytes(value: Any) -> bytes:
         if isinstance(value, bytes):
@@ -243,6 +301,17 @@ class SpeechService:
             output.setframerate(48000)
             output.writeframes(pcm)
         temporary.replace(destination)
+
+    @staticmethod
+    def _read_wav_pcm(path: Path) -> bytes:
+        with wave.open(str(path), "rb") as source:
+            if (
+                source.getnchannels() != 1
+                or source.getsampwidth() != 2
+                or source.getframerate() != 48000
+            ):
+                raise SpeechUnavailable("TTS segment has an unsupported WAV format")
+            return source.readframes(source.getnframes())
 
     async def cleanup_before(self, cutoff: datetime) -> int:
         return await asyncio.to_thread(self._cleanup_before_sync, cutoff.timestamp())
