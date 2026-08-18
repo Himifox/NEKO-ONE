@@ -7,7 +7,7 @@
     <meta name="referrer" content="same-origin" />
     <title>NEKO 公共房间 · 直播中</title>
     <script src="/assets/room-theme.js?v=1"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=7" />
+    <link rel="stylesheet" href="/assets/styles.css?v=8" />
   </head>
   <body>
     <main class="room-shell">
@@ -48,6 +48,12 @@
 
       <section class="stage" aria-label="NEKO 形象区域">
         <div class="stage-glow" aria-hidden="true"></div>
+        <div class="room-ambience" aria-hidden="true">
+          <div class="room-light-pool"></div>
+          <div class="room-curtain room-curtain-left"></div>
+          <div class="room-curtain room-curtain-right"></div>
+          <div class="room-lamp"></div>
+        </div>
         <canvas id="live2d-canvas" aria-label="NEKO Live2D" width="720" height="720"></canvas>
         <div class="avatar-placeholder" id="avatar-placeholder">
           <span>NEKO</span>
