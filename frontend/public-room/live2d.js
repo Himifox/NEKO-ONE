@@ -15,6 +15,7 @@
   let lastAudibleMouthAt = 0;
   let soullinkRuntime = null;
   let pointerFocus = null;
+  let applyMouthBeforeModelUpdate = null;
 
   function nowSeconds() {
     return performance.now() / 1000;
@@ -174,12 +175,20 @@
         autoFocus: true,
       });
       app.stage.addChild(model);
+      // Live2D applies motions, expressions, physics, and eye blinking during
+      // its render pass. Writing the mouth from Pixi's ticker happens too
+      // early and can be overwritten. This hook runs after those systems and
+      // makes the audible TTS amplitude the final mouth value for the frame.
+      applyMouthBeforeModelUpdate = () => {
+        const coreModel = model?.internalModel?.coreModel;
+        if (!coreModel?.setParameterValueById) return;
+        coreModel.setParameterValueById("ParamMouthOpenY", mouthValue);
+      };
+      model.internalModel?.on?.("beforeModelUpdate", applyMouthBeforeModelUpdate);
       stage.addEventListener("pointermove", trackPointer);
       stage.addEventListener("pointerleave", clearPointerFocus);
       app.ticker.add((delta) => {
         applySoullink(delta);
-        const coreModel = model?.internalModel?.coreModel;
-        if (!coreModel?.setParameterValueById) return;
         mouthPhase += delta * 0.34;
         const fallback = 0.1 + Math.abs(Math.sin(mouthPhase)) * 0.2;
         const audioIsActive = hasAudioMouthSignal
@@ -187,10 +196,9 @@
         // A sentence contains natural quiet gaps. Keep a subtle speaking motion
         // through those gaps; only the audio element's ended event may close it.
         const target = speaking ? (audioIsActive ? mouthTarget : fallback) : 0;
-        // Smooth the analyser's frame-to-frame values, then write after the
-        // optional Soullink snapshot so the audible WAV remains authoritative.
+        // Smooth the analyser's frame-to-frame values. The model-update hook
+        // writes this value after Live2D's own motion and expression systems.
         mouthValue += (target - mouthValue) * Math.min(1, delta * 0.22);
-        coreModel.setParameterValueById("ParamMouthOpenY", mouthValue);
       }, undefined, (PIXI.UPDATE_PRIORITY?.LOW ?? -25) - 1);
       fitModel();
       resizeObserver = new ResizeObserver(fitModel);
@@ -229,6 +237,9 @@
     resizeObserver?.disconnect();
     stage?.removeEventListener("pointermove", trackPointer);
     stage?.removeEventListener("pointerleave", clearPointerFocus);
+    if (applyMouthBeforeModelUpdate) {
+      model?.internalModel?.off?.("beforeModelUpdate", applyMouthBeforeModelUpdate);
+    }
     app?.destroy?.(true, { children: true, texture: true, baseTexture: true });
   });
 
