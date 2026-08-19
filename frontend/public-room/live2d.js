@@ -191,7 +191,7 @@
     setEmotion,
     setSpeaking(value) {
       speaking = Boolean(value);
-      soullinkRuntime?.setVoicePlaybackActive(speaking);
+      soullinkRuntime?.setVoicePlaybackActive?.(speaking);
     },
     get ready() { return Boolean(model); },
   };

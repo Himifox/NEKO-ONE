@@ -202,6 +202,14 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
                     connection, {"type": "pong", "server_time": utc_now()}
                 )
                 continue
+            if message_type == "cursor.move":
+                payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
+                await service.record_cursor_move(
+                    room_id=room_id,
+                    visitor_id=visitor.id,
+                    zone=str(payload.get("zone") or "").strip(),
+                )
+                continue
             if message_type != "chat.send":
                 await service.hub.send(
                     connection,
@@ -236,4 +244,9 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
         pass
     finally:
         await service.hub.unregister(connection)
+        # Cursor state is per-visitor, but a visitor may hold several
+        # connections; only release it when the last one closes so a stale
+        # connection teardown does not wipe a still-active sibling.
+        if visitor.id not in await service.hub.online_visitor_ids(room_id):
+            await service.forget_cursor(room_id, visitor.id)
         await service.hub.broadcast(room_id, await service.presence_event(room_id))

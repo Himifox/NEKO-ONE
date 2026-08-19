@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -9,6 +10,14 @@ from typing import Any
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+@dataclass(slots=True)
+class CursorState:
+    """Aggregated per-zone cursor attention for a room."""
+
+    zone: str
+    visitor_ids: set[str] = field(default_factory=set)
 
 
 @dataclass(slots=True)
