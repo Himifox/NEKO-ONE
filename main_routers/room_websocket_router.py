@@ -244,5 +244,9 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
         pass
     finally:
         await service.hub.unregister(connection)
-        await service.forget_cursor(room_id, visitor.id)
+        # Cursor state is per-visitor, but a visitor may hold several
+        # connections; only release it when the last one closes so a stale
+        # connection teardown does not wipe a still-active sibling.
+        if visitor.id not in await service.hub.online_visitor_ids(room_id):
+            await service.forget_cursor(room_id, visitor.id)
         await service.hub.broadcast(room_id, await service.presence_event(room_id))
