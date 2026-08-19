@@ -12,6 +12,7 @@
   let currentZone = "away";
   let lastSentZone = "away";
   let lastSentTime = 0;
+  let pendingZone = null;
   let boxes = {};
 
   function queryRect(selector) {
@@ -40,29 +41,49 @@
 
   function sendZone(zone) {
     const send = globalThis.NekoRoomClient?.send;
-    if (send) {
-      send({ type: "cursor.move", payload: { zone } });
+    if (!send) return false;
+    return send({ type: "cursor.move", payload: { zone } });
+  }
+
+  function flushPending() {
+    if (pendingZone == null) return;
+    const zone = pendingZone;
+    pendingZone = null;
+    if (zone !== lastSentZone && sendZone(zone)) {
+      lastSentZone = zone;
+      lastSentTime = Date.now();
     }
   }
 
   function handleMove(x, y) {
-    const now = Date.now();
-    if (now - lastSentTime < THROTTLE_MS) return;
-
     refreshBoxes();
     const zone = detectZone(x, y);
     currentZone = zone;
 
-    if (zone !== lastSentZone) {
+    if (zone === lastSentZone) {
+      pendingZone = null;
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastSentTime < THROTTLE_MS) {
+      pendingZone = zone;
+      return;
+    }
+
+    pendingZone = null;
+    if (sendZone(zone)) {
       lastSentZone = zone;
       lastSentTime = now;
-      sendZone(zone);
+    } else {
+      pendingZone = zone;
     }
   }
 
   function handleAway() {
     if (currentZone === "away" && lastSentZone === "away") return;
     currentZone = "away";
+    pendingZone = null;
     lastSentZone = "away";
     lastSentTime = Date.now();
     sendZone("away");
@@ -81,4 +102,16 @@
   });
 
   window.addEventListener("resize", refreshBoxes);
+
+  // Retry pending zone on reconnect (polling via NekoRoomClient status)
+  let retryTimer = setInterval(() => {
+    if (pendingZone != null) {
+      flushPending();
+    }
+  }, 500);
+  // Cleanup on page unload
+  window.addEventListener("pagehide", () => {
+    clearInterval(retryTimer);
+    retryTimer = null;
+  });
 })();

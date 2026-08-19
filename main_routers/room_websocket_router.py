@@ -244,4 +244,5 @@ async def public_room_websocket(websocket: WebSocket, room_id: str) -> None:
         pass
     finally:
         await service.hub.unregister(connection)
+        await service.forget_cursor(room_id, visitor.id)
         await service.hub.broadcast(room_id, await service.presence_event(room_id))

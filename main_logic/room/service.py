@@ -432,6 +432,12 @@ class PublicRoomService:
         self, room_id: str, visitor_id: str, zone: str
     ) -> None:
         """Record a visitor's cursor entering a zone. Cleans up previous zone first."""
+        VALID_ZONES = frozenset({
+            "avatar_body", "background", "chat_history",
+            "latest_messages", "input_box", "away", "",
+        })
+        if zone not in VALID_ZONES:
+            return
         async with self._cursor_lock:
             zones = self._cursor_zones.setdefault(room_id, {})
             for existing in list(zones.values()):
@@ -443,6 +449,15 @@ class PublicRoomService:
                     zones[zone] = target
                 else:
                     target.visitor_ids.add(visitor_id)
+
+    async def forget_cursor(self, room_id: str, visitor_id: str) -> None:
+        """Remove a visitor from all cursor zones (called on disconnect)."""
+        async with self._cursor_lock:
+            zones = self._cursor_zones.get(room_id)
+            if zones is None:
+                return
+            for existing in list(zones.values()):
+                existing.visitor_ids.discard(visitor_id)
 
     def get_cursor_perception(self, room_id: str) -> str:
         """Build a human-readable description of current cursor attention distribution."""
