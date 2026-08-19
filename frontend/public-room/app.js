@@ -419,4 +419,14 @@
   updateSoundButton();
   setConnection("连接中", "connecting");
   connect();
+
+  globalThis.NekoRoomClient = {
+    send(payload) {
+      if (state.socket?.readyState === WebSocket.OPEN) {
+        state.socket.send(JSON.stringify(payload));
+        return true;
+      }
+      return false;
+    },
+  };
 })();

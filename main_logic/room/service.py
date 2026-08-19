@@ -17,7 +17,7 @@ from .conversation import ConversationEngine
 from .director import RoomDirector
 from .hub import RoomConnectionHub
 from .memory_facade import MemoryFacade
-from .models import ActiveGeneration, RoomMessage, TurnCandidate, Visitor, utc_now
+from .models import ActiveGeneration, CursorState, RoomMessage, TurnCandidate, Visitor, utc_now
 from .speech import SpeechService
 from .store import RoomStore
 
@@ -57,6 +57,8 @@ class PublicRoomService:
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._last_room_activity: dict[str, float] = defaultdict(time.monotonic)
         self._last_proactive: dict[str, float] = defaultdict(lambda: 0.0)
+        self._cursor_zones: dict[str, dict[str, CursorState]] = {}
+        self._cursor_lock = asyncio.Lock()
         self._started = False
         self._shutdown_lock = asyncio.Lock()
         self._cleanup_lock = asyncio.Lock()
@@ -426,6 +428,48 @@ class PublicRoomService:
                 "room_read_only", "room is temporarily read-only"
             )
 
+    async def record_cursor_move(
+        self, room_id: str, visitor_id: str, zone: str
+    ) -> None:
+        """Record a visitor's cursor entering a zone. Cleans up previous zone first."""
+        async with self._cursor_lock:
+            zones = self._cursor_zones.setdefault(room_id, {})
+            for existing in list(zones.values()):
+                existing.visitor_ids.discard(visitor_id)
+            if zone and zone != "away":
+                target = zones.get(zone)
+                if target is None:
+                    target = CursorState(zone=zone, visitor_ids={visitor_id})
+                    zones[zone] = target
+                else:
+                    target.visitor_ids.add(visitor_id)
+
+    def get_cursor_perception(self, room_id: str) -> str:
+        """Build a human-readable description of current cursor attention distribution."""
+        zones = self._cursor_zones.get(room_id)
+        if not zones:
+            return ""
+        parts: list[str] = []
+        total = 0
+        zone_labels = {
+            "avatar_body": "人物主体",
+            "background": "背景",
+            "chat_history": "聊天历史",
+            "latest_messages": "最新消息",
+            "input_box": "输入框",
+        }
+        for state in zones.values():
+            count = len(state.visitor_ids)
+            if count == 0:
+                continue
+            total += count
+            label = zone_labels.get(state.zone, state.zone)
+            parts.append(f"{count}人正在看{label}")
+        if not parts:
+            return ""
+        summary = "，".join(parts)
+        return f"\n[当前观众注意力分布]\n{summary}（共{total}人）"
+
     def _apply_controls(self, values: dict[str, Any]) -> None:
         self.controls = {
             "paused": bool(values.get("paused", self.controls["paused"])),
@@ -636,6 +680,9 @@ class PublicRoomService:
                 recent_messages=recent_messages,
                 include_visitor_memory=not is_proactive,
             )
+            cursor_perception = self.get_cursor_perception(room_id)
+            if cursor_perception:
+                room_context = f"{room_context}\n{cursor_perception}"
             if self.memory.context_degraded:
                 self._mark_dependency(
                     "memory",
