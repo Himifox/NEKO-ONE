@@ -175,6 +175,25 @@ class SpeechService:
         self._response_queue = None
         self._provider_key = None
 
+    async def reconfigure(self) -> None:
+        """Drop the cached worker so the next utterance uses current admin config.
+
+        Voice/provider settings live outside this service and may be changed while
+        the room is running.  A worker captures its credential, endpoint and
+        voice when its thread starts, so keeping that thread alive after an admin
+        update would make the saved setting and actual speech route disagree.
+        Serialize with synthesis to avoid interrupting an utterance already being
+        published to visitors.
+        """
+        async with self._synthesis_lock:
+            async with self._start_lock:
+                await self._stop_worker()
+                self._disabled = bool(
+                    (self._config_manager.get_core_config() or {}).get(
+                        "DISABLE_TTS", False
+                    )
+                )
+
     async def synthesize(self, text: str) -> dict[str, Any]:
         normalized = self.prepare_text(text)
         if not normalized:
