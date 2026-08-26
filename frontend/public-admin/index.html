@@ -27,7 +27,7 @@
           <ul class="login-points" aria-label="安全特性">
             <li>管理员会话与 CSRF 双重保护</li>
             <li>访客内容不能直接写入 Persona</li>
-            <li>敏感供应商配置不在此页面返回</li>
+            <li>供应商密钥仅以掩码形式显示</li>
           </ul>
         </div>
 
@@ -67,6 +67,7 @@
               <a href="#identity-memory"><span>04</span>人格与记忆</a>
               <a href="#moderation"><span>05</span>内容治理</a>
               <a href="#data-lifecycle"><span>06</span>数据生命周期</a>
+              <a href="#provider-config"><span>07</span>供应商配置</a>
             </nav>
 
             <div class="sidebar-footer">
@@ -309,6 +310,95 @@
                 </article>
               </div>
             </section>
+
+            <section id="provider-config" class="console-section">
+              <div class="section-heading">
+                <div><p class="section-index">07 / PROVIDERS</p><h2>供应商密钥与 URL</h2></div>
+                <p>密钥只在本页展示前 5 + 后 5 位，保存后不可再完整查看或复制。</p>
+              </div>
+
+              <div class="provider-grid">
+                <article class="panel provider-select-panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">SELECTION</p><h3>核心与辅助供应商</h3></div>
+                    <span class="status-chip">当前路由</span>
+                  </div>
+                  <label class="field"><span>核心文本供应商</span><select id="core-api"></select></label>
+                  <label class="field"><span>辅助供应商</span><select id="assist-api"></select></label>
+                  <label class="switch-row">
+                    <span><strong>使用 Mimo 包月额度</strong><small>将辅助密钥按包月渠道路由</small></span>
+                    <input id="use-mimo-token-plan" type="checkbox" /><i aria-hidden="true"></i>
+                  </label>
+                </article>
+
+                <article class="panel provider-url-panel">
+                  <div class="panel-heading">
+                    <div><p class="panel-kicker">CUSTOM URLS</p><h3>自定义端点</h3></div>
+                    <span class="status-chip">可选</span>
+                  </div>
+                  <p class="panel-description">留空表示保持不变；仅当你确实想覆盖默认端点时才填写。</p>
+                  <label class="field"><span>TTS 模型 URL</span><input id="tts-model-url" type="url" placeholder="https://…" spellcheck="false" /></label>
+                  <p class="panel-description">以下为已通过连通性测试并落盘的覆盖地址（只读）。</p>
+                  <div id="resolved-provider-urls" class="provider-url-list"></div>
+                </article>
+              </div>
+
+              <article id="voice-clone-config" class="panel voice-clone-panel">
+                <div class="panel-heading">
+                  <div><p class="panel-kicker">PRIVATE VOICE BINDING</p><h3>克隆音色与模型</h3></div>
+                  <span id="voice-clone-status" class="status-chip">未配置</span>
+                </div>
+                <p class="panel-description">这里只绑定管理员已获得授权的克隆音色。访客不能上传样本、读取 Voice ID 或切换声音；参考音频也不会发送到公共网页。</p>
+                <div class="voice-clone-grid">
+                  <label class="field"><span>支持音色克隆的供应商</span><select id="voice-clone-provider"></select></label>
+                  <label class="field"><span>兼容模型</span><select id="voice-clone-model"></select></label>
+                  <label class="field"><span>Voice ID / 已导入音色</span><input id="voice-clone-id" type="text" maxlength="256" list="voice-id-options" autocomplete="off" spellcheck="false" placeholder="填写上游克隆 Voice ID" /><datalist id="voice-id-options"></datalist></label>
+                  <label class="field"><span>后台显示名称（可选）</span><input id="voice-clone-name" type="text" maxlength="100" autocomplete="off" placeholder="例如：Pardo 授权音色" /></label>
+                </div>
+                <p id="voice-clone-hint" class="inline-state"></p>
+                <label class="consent-row">
+                  <input id="voice-rights-confirmed" type="checkbox" />
+                  <span>我确认拥有该声音的克隆及公开播放授权，并承担相应合规责任。</span>
+                </label>
+                <div class="panel-actions split-actions">
+                  <button id="save-voice-clone" class="button primary" type="button">保存并切换音色</button>
+                  <button id="clear-voice-clone" class="button secondary" type="button">停用当前角色音色</button>
+                </div>
+              </article>
+
+              <article class="panel key-panel">
+                <div class="panel-heading">
+                  <div><p class="panel-kicker">CREDENTIALS</p><h3>API 密钥</h3></div>
+                  <span class="status-chip secure">掩码显示</span>
+                </div>
+                <p class="panel-description">输入框仅用于填写新密钥；已有密钥只显示前 5 + 后 5 位。留空表示保持不变。</p>
+                <div class="key-grid">
+                  <label class="field key-field"><span>核心 API Key</span><input data-key="coreApiKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>通义千问 Qwen</span><input data-key="assistApiKeyQwen" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>Qwen 国际版</span><input data-key="assistApiKeyQwenIntl" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>OpenAI</span><input data-key="assistApiKeyOpenai" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>智谱 GLM</span><input data-key="assistApiKeyGlm" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>阶跃 Step</span><input data-key="assistApiKeyStep" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>硅基流动 SiliconFlow</span><input data-key="assistApiKeySilicon" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>Gemini</span><input data-key="assistApiKeyGemini" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>Kimi</span><input data-key="assistApiKeyKimi" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>Kimi 代码模型</span><input data-key="assistApiKeyKimiCode" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>DeepSeek</span><input data-key="assistApiKeyDeepseek" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>豆包 Doubao</span><input data-key="assistApiKeyDoubao" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>豆包 TTS</span><input data-key="assistApiKeyDoubaoTts" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>MiniMax</span><input data-key="assistApiKeyMinimax" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>MiniMax 国际版</span><input data-key="assistApiKeyMinimaxIntl" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>MiniMax Mimo</span><input data-key="assistApiKeyMimo" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>Mimo 包月</span><input data-key="assistApiKeyMimoTokenPlan" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>ElevenLabs</span><input data-key="assistApiKeyElevenlabs" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>Claude</span><input data-key="assistApiKeyClaude" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>Grok</span><input data-key="assistApiKeyGrok" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                  <label class="field key-field"><span>TTS 模型 Key</span><input data-key="ttsModelApiKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写以覆盖当前密钥" /></label>
+                </div>
+                <div class="panel-actions"><button id="save-provider-config" class="button primary" type="button">保存供应商配置</button></div>
+                <p class="inline-state muted">每次保存都会在审计日志中记录本次修改的字段名；密钥本身不会被记录。</p>
+              </article>
+            </section>
           </div>
         </div>
       </section>
@@ -318,7 +408,7 @@
     <script src="/runtime/pixi.min.js"></script>
     <script src="/runtime/pixi-live2d-display-cubism4.min.js"></script>
     <script src="/admin-assets/avatar-preview.js?v=2" defer></script>
-    <script src="/admin-assets/app.js?v=6" defer></script>
+    <script src="/admin-assets/app.js?v=7" defer></script>
     <script src="/admin-assets/admin-nav.js?v=2" defer></script>
   </body>
 </html>
