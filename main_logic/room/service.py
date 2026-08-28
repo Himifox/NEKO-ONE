@@ -1035,6 +1035,11 @@ class PublicRoomService:
             if self._retention_task is not None:
                 await asyncio.gather(self._retention_task, return_exceptions=True)
             if self._background_tasks:
+                # Segmented TTS tasks can stall on their own timeout and retry
+                # budget. Cancel them so shutdown is not held up by a slow
+                # segment; gather swallows the resulting CancelledError.
+                for task in list(self._background_tasks):
+                    task.cancel()
                 await asyncio.gather(*self._background_tasks, return_exceptions=True)
             await self.speech.shutdown()
             await self.hub.shutdown()
