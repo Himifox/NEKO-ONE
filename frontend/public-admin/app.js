@@ -3,6 +3,8 @@
   let csrf = "";
   let mutationInFlight = false;
   let avatarModels = [];
+  let providerConfig = null;
+  let voiceConfig = null;
   const loginCard = document.getElementById("login-card");
   const dashboard = document.getElementById("dashboard");
   const notice = document.getElementById("notice");
@@ -90,6 +92,149 @@
     empty.className = "empty-state";
     empty.textContent = message;
     container.append(empty);
+  }
+
+  function fillProviderSelect(select, providers, current) {
+    select.replaceChildren();
+    (providers || []).forEach((provider) => {
+      const option = document.createElement("option");
+      option.value = provider.key;
+      option.textContent = provider.name;
+      option.selected = provider.key === current;
+      select.append(option);
+    });
+  }
+
+  function renderProviderConfig(cfg) {
+    providerConfig = cfg;
+    fillProviderSelect(document.getElementById("core-api"), cfg.coreProviders, cfg.coreApi);
+    fillProviderSelect(document.getElementById("assist-api"), cfg.assistProviders, cfg.assistApi);
+    document.getElementById("use-mimo-token-plan").checked = Boolean(cfg.useMimoTokenPlan);
+    const ttsUrl = document.getElementById("tts-model-url");
+    ttsUrl.value = cfg.ttsModelUrl || "";
+    ttsUrl.dataset.original = cfg.ttsModelUrl || "";
+    const resolved = document.getElementById("resolved-provider-urls");
+    resolved.replaceChildren();
+    const entries = Object.entries(cfg.resolvedProviderUrls || {});
+    if (!entries.length) {
+      renderEmpty(resolved, "暂无已保存的覆盖地址");
+    } else {
+      entries.forEach(([scopeProvider, url]) => resolved.append(row(scopeProvider, url, [])));
+    }
+    document.querySelectorAll("#provider-config [data-key]").forEach((input) => {
+      const masked = cfg[input.dataset.key] || "";
+      const container = input.closest("label.field") || input.parentElement;
+      let display = container.querySelector(".masked-display");
+      if (!display) {
+        display = document.createElement("span");
+        display.className = "masked-display";
+        container.append(display);
+      }
+      display.textContent = masked ? `当前：${masked}` : "未配置";
+      input.value = "";
+      input.dataset.dirty = "false";
+    });
+  }
+
+  async function loadProviderConfig() {
+    try {
+      renderProviderConfig(await api("/core-config"));
+      return true;
+    } catch (error) {
+      console.warn("加载供应商配置失败", error);
+      return false;
+    }
+  }
+
+  function selectedVoiceProvider() {
+    const key = document.getElementById("voice-clone-provider").value;
+    return (voiceConfig?.providers || []).find((provider) => provider.key === key) || null;
+  }
+
+  function renderVoiceProviderDetails({ keepVoiceId = false } = {}) {
+    const provider = selectedVoiceProvider();
+    const modelSelect = document.getElementById("voice-clone-model");
+    const voiceId = document.getElementById("voice-clone-id");
+    const savedOptions = document.getElementById("voice-id-options");
+    modelSelect.replaceChildren();
+    (provider?.models || []).forEach((model) => {
+      const option = document.createElement("option");
+      option.value = model;
+      option.textContent = model;
+      modelSelect.append(option);
+    });
+    savedOptions.replaceChildren();
+    const saved = (voiceConfig?.savedVoices || []).filter((voice) => voice.provider === provider?.key);
+    saved.forEach((voice) => {
+      const option = document.createElement("option");
+      option.value = voice.voiceId;
+      option.label = `${voice.name} · ${voice.model}`;
+      savedOptions.append(option);
+    });
+    if (!keepVoiceId) voiceId.value = "";
+    const sampleOnly = provider?.registrationMode === "saved_sample";
+    voiceId.placeholder = sampleOnly ? "请选择已导入的参考音频音色" : "填写上游克隆 Voice ID";
+    const hint = document.getElementById("voice-clone-hint");
+    if (!provider) {
+      hint.textContent = "当前运行时没有可用的音色克隆供应商。";
+      hint.dataset.state = "missing";
+    } else if (!provider.ready) {
+      hint.textContent = `${provider.credentialHint}。请先在下方保存对应密钥。`;
+      hint.dataset.state = "missing";
+    } else if (sampleOnly && !saved.length) {
+      hint.textContent = `${provider.credentialHint}；当前私有音色库中尚无可选样本。`;
+      hint.dataset.state = "missing";
+    } else {
+      hint.textContent = sampleOnly
+        ? `${provider.credentialHint}；可输入或从浏览器建议中选择已有 ID。`
+        : `${provider.credentialHint}；请填写供应商克隆成功后返回的 Voice ID。`;
+      hint.dataset.state = "ready";
+    }
+    document.getElementById("save-voice-clone").disabled = !provider?.ready || (sampleOnly && !saved.length);
+  }
+
+  function renderVoiceConfig(cfg) {
+    voiceConfig = cfg;
+    const providerSelect = document.getElementById("voice-clone-provider");
+    providerSelect.replaceChildren();
+    (cfg.providers || []).forEach((provider) => {
+      const option = document.createElement("option");
+      option.value = provider.key;
+      option.textContent = `${provider.name}${provider.ready ? "" : "（待配置）"}`;
+      option.selected = provider.key === cfg.current?.provider;
+      providerSelect.append(option);
+    });
+    if (!providerSelect.value && providerSelect.options.length) providerSelect.selectedIndex = 0;
+    renderVoiceProviderDetails({ keepVoiceId: true });
+    const current = cfg.current || {};
+    if (current.cloneConfigured) {
+      providerSelect.value = current.provider;
+      renderVoiceProviderDetails({ keepVoiceId: true });
+      document.getElementById("voice-clone-model").value = current.model || "";
+      document.getElementById("voice-clone-id").value = current.voiceId || "";
+    } else {
+      document.getElementById("voice-clone-id").value = "";
+    }
+    document.getElementById("voice-clone-name").value = "";
+    document.getElementById("voice-rights-confirmed").checked = false;
+    const status = document.getElementById("voice-clone-status");
+    status.textContent = current.cloneConfigured
+      ? `${cfg.character} · ${current.provider} / ${current.model}`
+      : current.configured
+        ? `${cfg.character} · 当前为${current.source === "preset" ? "预制" : "旧版"}音色`
+        : `${cfg.character} · 未配置`;
+    status.dataset.state = current.configured ? "ready" : "disabled";
+    document.getElementById("clear-voice-clone").disabled = !current.configured;
+  }
+
+  async function loadVoiceConfig() {
+    try {
+      renderVoiceConfig(await api("/voice-config"));
+      return true;
+    } catch (error) {
+      console.warn("加载克隆音色配置失败", error);
+      return false;
+    }
   }
 
   function render(state) {
@@ -239,6 +384,7 @@
         };
       }
       render(state);
+      await Promise.all([loadProviderConfig(), loadVoiceConfig()]);
       if (announce) setNotice("状态已刷新", "success");
       return true;
     } catch (error) {
@@ -257,6 +403,8 @@
       await api(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
       applied = true;
       render(await api("/state"));
+      if (path === "/core-config") await Promise.all([loadProviderConfig(), loadVoiceConfig()]);
+      if (path === "/voice-config") await loadVoiceConfig();
       setNotice("操作完成", "success");
       return true;
     } catch (error) {
@@ -339,6 +487,56 @@
   }));
   document.getElementById("run-retention").addEventListener("click", () => {
     if (confirm("立即按当前保留策略永久清理过期数据？")) mutate("/retention/run", "POST");
+  });
+  document.getElementById("provider-config").addEventListener("input", (event) => {
+    if (event.target.dataset && event.target.dataset.key) event.target.dataset.dirty = "true";
+  });
+  document.getElementById("save-provider-config").addEventListener("click", () => {
+    const body = {};
+    document.querySelectorAll("#provider-config [data-key]").forEach((input) => {
+      const value = input.value.trim();
+      if (input.dataset.dirty === "true" && value) body[input.dataset.key] = value;
+    });
+    const coreApi = document.getElementById("core-api").value;
+    const assistApi = document.getElementById("assist-api").value;
+    if (coreApi && coreApi !== (providerConfig?.coreApi || "")) body.coreApi = coreApi;
+    if (assistApi && assistApi !== (providerConfig?.assistApi || "")) body.assistApi = assistApi;
+    if (document.getElementById("use-mimo-token-plan").checked !== Boolean(providerConfig?.useMimoTokenPlan)) {
+      body.useMimoTokenPlan = document.getElementById("use-mimo-token-plan").checked;
+    }
+    const urlFields = { "tts-model-url": "ttsModelUrl" };
+    Object.entries(urlFields).forEach(([id, field]) => {
+      const input = document.getElementById(id);
+      if (input.value.trim() !== (input.dataset.original || "")) body[field] = input.value.trim();
+    });
+    mutate("/core-config", "PUT", body);
+  });
+  document.getElementById("voice-clone-provider").addEventListener("change", () => {
+    renderVoiceProviderDetails();
+  });
+  document.getElementById("save-voice-clone").addEventListener("click", () => {
+    const provider = selectedVoiceProvider();
+    const voiceId = document.getElementById("voice-clone-id").value.trim();
+    if (!provider || !voiceId) {
+      setNotice("请选择克隆供应商并填写 Voice ID", "error");
+      return;
+    }
+    if (!document.getElementById("voice-rights-confirmed").checked) {
+      setNotice("请先确认声音克隆与公开播放授权", "error");
+      return;
+    }
+    mutate("/voice-config", "PUT", {
+      provider: provider.key,
+      model: document.getElementById("voice-clone-model").value,
+      voice_id: voiceId,
+      display_name: document.getElementById("voice-clone-name").value.trim() || null,
+      rights_confirmed: true,
+    });
+  });
+  document.getElementById("clear-voice-clone").addEventListener("click", () => {
+    if (confirm("停用当前角色的 TTS 音色？私有音色库不会被删除。")) {
+      mutate("/voice-config", "DELETE");
+    }
   });
   dashboard.addEventListener("click", async (event) => {
     const target = event.target.closest("button[data-action]"); if (!target) return;

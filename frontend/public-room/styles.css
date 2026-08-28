@@ -382,6 +382,63 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   54% { opacity: .82; transform: scale(1.06) translate3d(1.4%, 1%, 0); }
   100% { opacity: .66; transform: scale(.98) translate3d(-.4%, 0, 0); }
 }
+.stage-ambience {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.scene-set { display: none; }
+html[data-room-period="morning"] .scene-morning,
+html[data-room-period="noon"] .scene-noon,
+html[data-room-period="afternoon"] .scene-afternoon,
+html[data-room-period="evening"] .scene-evening,
+html[data-room-period="late-night"] .scene-late-night { display: block; }
+.scene-wire { fill: none; stroke: rgba(255, 255, 255, .62); stroke-width: 4; stroke-linecap: round; }
+.scene-sway { transform-box: fill-box; transform-origin: 50% 0; animation: scene-sway 5.4s ease-in-out infinite; }
+.scene-spin { transform-box: fill-box; transform-origin: center; animation: scene-spin 13s linear infinite; }
+.scene-steam {
+  fill: none;
+  stroke: rgba(255, 255, 255, .72);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-dasharray: 28 18;
+  animation: scene-steam 2.8s linear infinite;
+}
+.scene-glint { transform-box: fill-box; transform-origin: center; animation: scene-twinkle 1.8s ease-in-out infinite; }
+.scene-motes circle,
+.scene-fireflies circle,
+.scene-night-stars circle { transform-box: fill-box; transform-origin: center; animation: scene-float 4.8s ease-in-out infinite; }
+.scene-motes circle:nth-child(2n),
+.scene-fireflies circle:nth-child(2n),
+.scene-night-stars circle:nth-child(2n) { animation-delay: -2.3s; animation-duration: 6.2s; }
+.scene-motes circle:nth-child(3n),
+.scene-fireflies circle:nth-child(3n),
+.scene-night-stars circle:nth-child(3n) { animation-delay: -3.7s; }
+.scene-leaf-sway { transform-box: fill-box; transform-origin: 0 20%; animation: scene-leaves 4.2s ease-in-out infinite; }
+.scene-page { transform-box: fill-box; transform-origin: 0 100%; animation: scene-page 5.8s ease-in-out infinite; }
+.scene-falling-leaf { transform-box: fill-box; transform-origin: center; animation: scene-leaf-fall 8s ease-in-out infinite; }
+.scene-falling-leaf.leaf-two { animation-delay: -3s; animation-duration: 9.4s; }
+.scene-falling-leaf.leaf-three { animation-delay: -5.5s; animation-duration: 7.2s; }
+.scene-fairy-lights circle {
+  fill: #ffd98c;
+  filter: drop-shadow(0 0 12px rgba(255, 194, 100, .9));
+  animation: scene-twinkle 2.4s ease-in-out infinite;
+}
+.scene-fairy-lights circle:nth-child(2n) { animation-delay: -1.2s; }
+.scene-moon-lamp { transform-box: fill-box; transform-origin: center; animation: scene-moon-breathe 5.5s ease-in-out infinite; }
+@keyframes scene-sway { 0%, 100% { transform: rotate(-1.8deg); } 50% { transform: rotate(2.4deg); } }
+@keyframes scene-spin { to { transform: rotate(360deg); } }
+@keyframes scene-steam { to { stroke-dashoffset: -46; transform: translateY(-6px); opacity: .28; } }
+@keyframes scene-twinkle { 50% { opacity: .32; transform: scale(.72); } }
+@keyframes scene-float { 50% { opacity: .35; transform: translate(7px, -13px) scale(.8); } }
+@keyframes scene-leaves { 50% { transform: rotate(2.8deg) translateY(2px); } }
+@keyframes scene-page { 0%, 80%, 100% { transform: perspective(100px) rotateY(0); } 88% { transform: perspective(100px) rotateY(-18deg); } }
+@keyframes scene-leaf-fall { 0%, 100% { transform: translate(0, 0) rotate(-12deg); opacity: .2; } 45% { opacity: .82; } 70% { transform: translate(42px, 155px) rotate(65deg); opacity: .25; } }
+@keyframes scene-moon-breathe { 50% { opacity: .72; transform: scale(.97); } }
 #live2d-canvas { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; }
 .avatar-placeholder {
   position: absolute;
@@ -471,7 +528,7 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   grid-column: 2;
   grid-row: 2;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   background: rgba(255, 255, 255, .9);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
@@ -502,7 +559,7 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   scrollbar-color: rgba(255, 95, 168, .3) transparent;
   background: radial-gradient(circle at 50% 45%, rgba(255, 120, 180, .05), transparent 44%);
 }
-.timeline:empty::before {
+.timeline[data-empty="true"]::before {
   content: "房间很安静\A和 NEKO 说第一句话吧";
   margin: auto;
   color: #7a5c72;
@@ -561,10 +618,51 @@ h1 { margin: 0; color: var(--ink-strong); font-size: 19px; letter-spacing: -.025
   box-shadow: 0 3px 0 rgba(200, 30, 110, .25);
 }
 
-.stream-row { margin: 0 20px 12px; color: var(--ink); }
-.stream-row strong { display: block; margin: 0 0 6px 3px; font-size: 9px; }
-.stream-row p::after { content: "▋"; color: #ff5fa8; animation: blink 1s steps(1) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
+.stream-row {
+  position: relative;
+  align-self: flex-start;
+  width: min(86%, 560px);
+  color: var(--ink);
+  animation: stream-enter .24s cubic-bezier(.2, .8, .2, 1) both;
+}
+.stream-row[hidden] { display: none; }
+.stream-row strong {
+  display: block;
+  margin: 0 0 6px 3px;
+  color: #7a5c72;
+  font-size: 9px;
+}
+.stream-row strong::after {
+  content: " · 正在回应";
+  color: #d14788;
+  letter-spacing: .08em;
+}
+.stream-row p {
+  background: linear-gradient(110deg, #fff 15%, #fff3f9 42%, #ffe3f1 50%, #fff3f9 58%, #fff 85%);
+  background-size: 240% 100%;
+  animation: stream-shimmer 2.2s linear infinite;
+}
+.stream-row p::after {
+  content: "";
+  display: inline-block;
+  width: .48em;
+  height: 1em;
+  margin-left: .22em;
+  border-radius: 999px;
+  vertical-align: -.12em;
+  background: #ff4b9b;
+  box-shadow: 0 0 10px rgba(255, 75, 155, .72);
+  animation: stream-caret .72s steps(1) infinite;
+}
+@keyframes stream-enter {
+  from { opacity: 0; transform: translateY(7px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes stream-shimmer {
+  from { background-position: 110% 0; }
+  to { background-position: -110% 0; }
+}
+@keyframes stream-caret { 50% { opacity: .2; } }
 
 .room-status {
   display: flex;
@@ -664,6 +762,8 @@ button:disabled, textarea:disabled { opacity: .45; cursor: not-allowed; transfor
   .scene-pill small { display: none; }
   .scene-pill strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 90px; }
   .stage { grid-row: 2; height: 36dvh; min-height: 260px; border-radius: 22px; }
+  .stage-ambience { opacity: .72; }
+  .scene-book, .scene-cup { transform: scale(.82); transform-origin: 100% 100%; }
   .chat-panel { grid-row: 3; height: 61dvh; min-height: 440px; border-radius: 22px; }
   .avatar-caption { display: none; }
   .stage-onair { top: 14px; right: 14px; }
@@ -672,7 +772,7 @@ button:disabled, textarea:disabled { opacity: .45; cursor: not-allowed; transfor
   .timeline { padding: 18px 16px; }
   .message { max-width: 92%; }
   .message p, .stream-row p { font-size: 12px; }
-  .stream-row { margin-inline: 16px; }
+  .stream-row { width: min(92%, 560px); }
   .room-status { padding-inline: 16px; }
   #composer { padding: 0 16px 16px; }
   #send-button { min-width: 60px; padding-inline: 14px; }

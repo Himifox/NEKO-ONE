@@ -893,42 +893,40 @@ class PublicRoomService:
     async def _publish_speech(
         self, *, room_id: str, message_id: str, text: str
     ) -> None:
+        spoken_text = SpeechService.prepare_text(text)
+        if not spoken_text:
+            logger.info(
+                "public-room speech skipped because the reply contains no spoken text"
+            )
+            return
         try:
-            segments = self._split_speech_segments(text)
-            for index, segment in enumerate(segments):
-                payload = None
-                last_error: Exception | None = None
-                for attempt in range(self.tts_attempts):
-                    try:
-                        payload = await self.speech.synthesize(segment)
-                        break
-                    except Exception as exc:
-                        last_error = exc
-                        if attempt + 1 < self.tts_attempts:
-                            await asyncio.sleep(0.25 * (2**attempt))
-                if payload is None:
-                    raise last_error or RuntimeError("TTS synthesis failed")
-                self._mark_dependency("tts", "ready")
-                public_payload = {
-                    key: payload[key]
-                    for key in ("speech_id", "url", "content_type", "sample_rate")
-                    if key in payload
-                }
-                public_payload.update(
-                    {
-                        "message_id": message_id,
-                        "segment_index": index,
-                        "segment_count": len(segments),
-                    }
-                )
-                await self.hub.broadcast(
-                    room_id,
-                    {
-                        "type": "speech.ready",
-                        "server_time": utc_now(),
-                        "payload": public_payload,
-                    },
-                )
+            payload = None
+            last_error: Exception | None = None
+            for attempt in range(self.tts_attempts):
+                try:
+                    payload = await self.speech.synthesize_complete(spoken_text)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    if attempt + 1 < self.tts_attempts:
+                        await asyncio.sleep(0.25 * (2**attempt))
+            if payload is None:
+                raise last_error or RuntimeError("TTS synthesis failed")
+            self._mark_dependency("tts", "ready")
+            public_payload = {
+                key: payload[key]
+                for key in ("speech_id", "url", "content_type", "sample_rate")
+                if key in payload
+            }
+            public_payload["message_id"] = message_id
+            await self.hub.broadcast(
+                room_id,
+                {
+                    "type": "speech.ready",
+                    "server_time": utc_now(),
+                    "payload": public_payload,
+                },
+            )
         except Exception as exc:
             self._mark_dependency(
                 "tts",
@@ -944,27 +942,6 @@ class PublicRoomService:
                     "payload": {"message_id": message_id},
                 },
             )
-
-    @staticmethod
-    def _split_speech_segments(text: str, *, max_chars: int = 120) -> list[str]:
-        """Split a reply into natural, short TTS units for low first-audio latency."""
-        normalized = str(text or "").strip()
-        if not normalized:
-            return []
-        segments: list[str] = []
-        buffer: list[str] = []
-        endings = frozenset("。！？!?；;")
-        for character in normalized:
-            buffer.append(character)
-            if character in endings or len(buffer) >= max_chars:
-                segment = "".join(buffer).strip()
-                if segment:
-                    segments.append(segment)
-                buffer.clear()
-        tail = "".join(buffer).strip()
-        if tail:
-            segments.append(tail)
-        return segments
 
     async def _record_completed_turn(
         self,
@@ -1058,6 +1035,11 @@ class PublicRoomService:
             if self._retention_task is not None:
                 await asyncio.gather(self._retention_task, return_exceptions=True)
             if self._background_tasks:
+                # Segmented TTS tasks can stall on their own timeout and retry
+                # budget. Cancel them so shutdown is not held up by a slow
+                # segment; gather swallows the resulting CancelledError.
+                for task in list(self._background_tasks):
+                    task.cancel()
                 await asyncio.gather(*self._background_tasks, return_exceptions=True)
             await self.speech.shutdown()
             await self.hub.shutdown()
