@@ -120,10 +120,17 @@
     // Live2D content is not guaranteed to fill its bbox or sit at the model
     // origin, so measure the real visible bounds and pin their bottom-center
     // to the bottom-center of the stage via pivot.
+    //
+    // A Live2D host reads best as a bust. Instead of squeezing a full standing
+    // figure into the frame, zoom to the upper body and let the lower half fall
+    // below the stage edge: the face and gestures stay big, and the legs no longer
+    // consume the space that should belong to the scene.
     const bounds = model.getLocalBounds();
-    const scale = Math.min(width / bounds.width, height / bounds.height) * 0.92;
+    const bustFraction = 0.52; // portion of the figure kept on stage
+    const shownHeight = bounds.height * bustFraction;
+    const scale = Math.min(width / bounds.width, height / shownHeight) * 0.92;
     model.scale.set(scale);
-    model.pivot.set(bounds.x + bounds.width / 2, bounds.y + bounds.height);
+    model.pivot.set(bounds.x + bounds.width / 2, bounds.y + shownHeight);
     model.position.set(width / 2, height);
   }
 
