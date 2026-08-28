@@ -96,11 +96,22 @@ def ready_worker(requests, responses, _api_key, _voice_id):
 async def verify_speech_worker_lifecycle(temporary: Path) -> None:
     speech = SpeechService(temporary / "speech-lifecycle")
     speech._disabled = False
-    speech._resolve_route = lambda: (dummy_tts_worker, "", None, "")
-    assert speech.configured is False
-
-    speech._resolve_route = lambda: (rejected_worker, "", "rejected", "")
+    # configured now reports only whether TTS is enabled; route resolution is
+    # deferred to the first synthesis, so a missing provider surfaces on start.
     assert speech.configured is True
+
+    # A route with no provider must fail to start without spinning up a worker.
+    speech._resolve_route = lambda: (dummy_tts_worker, "", None, "")
+    try:
+        await speech._ensure_started()
+    except SpeechUnavailable:
+        pass
+    else:
+        raise AssertionError("dummy TTS provider must not start")
+    assert speech._thread is None
+
+    speech._disabled = False
+    speech._resolve_route = lambda: (rejected_worker, "", "rejected", "")
     try:
         await speech._ensure_started()
     except SpeechUnavailable:
@@ -112,6 +123,7 @@ async def verify_speech_worker_lifecycle(temporary: Path) -> None:
     assert speech._response_queue is None
     assert speech._ready is False
 
+    speech._disabled = False
     speech._resolve_route = lambda: (ready_worker, "", "ready", "")
     await speech._ensure_started()
     assert speech._ready is True
