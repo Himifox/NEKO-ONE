@@ -45,7 +45,8 @@ class SpeechService:
     def __init__(self, audio_root: Path):
         self.audio_root = audio_root.resolve()
         self.audio_root.mkdir(parents=True, exist_ok=True)
-        self._config_manager = get_config_manager()
+        # Public-room startup must not trigger legacy desktop storage migration.
+        self._config_manager = get_config_manager(migrate=False)
         self._request_queue: Queue | None = None
         self._response_queue: Queue | None = None
         self._thread: Thread | None = None
@@ -59,15 +60,14 @@ class SpeechService:
 
     @property
     def configured(self) -> bool:
-        if self._disabled:
-            return False
-        if self._ready and self._thread is not None and self._thread.is_alive():
-            return True
-        try:
-            worker, _, provider_key, _ = self._resolve_route()
-        except Exception:
-            return False
-        return worker is not dummy_tts_worker and provider_key is not None
+        """Report whether speech is enabled without resolving a legacy voice at boot.
+
+        Route resolution loads the editable character registry and may perform a
+        compatibility write.  That belongs to the first synthesis request, not
+        application construction, otherwise a stale desktop file can prevent the
+        entire public web service from binding its port.
+        """
+        return not self._disabled
 
     def _resolve_route(self) -> tuple[Any, str, str | None, str]:
         core_config = self._config_manager.get_core_config() or {}

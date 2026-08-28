@@ -23,7 +23,10 @@ DEFAULT_PUBLIC_CHARACTER_NAME = "Lanlan"
 
 class ConversationEngine:
     def __init__(self):
-        self._config_manager = get_config_manager()
+        # The public-room process reads the established runtime configuration but
+        # must not run desktop-only Documents migrations during web startup.
+        self._config_manager = get_config_manager(migrate=False)
+        self._config_manager._defer_character_migration_persistence = True
 
     async def _legacy_character(self) -> tuple[str, str, str]:
         """Resolve the legacy Persona record without exposing its key publicly."""
