@@ -71,7 +71,7 @@ CONTENT_SECURITY_POLICY = "; ".join(
         "img-src 'self' data: blob:",
         "media-src 'self' blob:",
         "font-src 'self'",
-        "connect-src 'self' ws: wss:",
+        "connect-src 'self'",
         "worker-src 'self' blob:",
         "manifest-src 'self'",
     )
