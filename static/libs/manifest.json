@@ -44,11 +44,11 @@
     {
       "path": "live2dcubismcore.min.js",
       "name": "Live2D Cubism Core for Web",
-      "version": "bundled upstream build; exact release not proven",
+      "version": "5.1.0 (runtime-reported; SHA-256 pinned)",
       "sha256": "25ae938cb4fe282ce189b357bcc97e603d1e1f7ec78bf04150d401c23cdc792f",
       "license": "LicenseRef-Live2D-Proprietary-Software-License-Agreement",
       "license_url": "https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html",
-      "source": "legacy project import; file header identifies it as Redistributable Code",
+      "source": "legacy project import; runtime csmGetVersion reports 0x05010000 and the file header identifies it as Redistributable Code",
       "modifications": "none"
     }
   ]

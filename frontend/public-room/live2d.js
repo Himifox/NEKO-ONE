@@ -197,6 +197,7 @@
         antialias: true,
       });
       model = await PIXI.live2d.Live2DModel.from(manifest.model_url, {
+        checkMocConsistency: true,
         autoHitTest: true,
         // Soullink writes its values later in the frame when available. Keep
         // Pixi's focus on so a failed optional runtime preserves cursor gaze.
