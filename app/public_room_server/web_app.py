@@ -85,7 +85,12 @@ class RequestBodyLimitMiddleware:
             return -1
         if not text.isdecimal():
             return -1
-        return int(text)
+        try:
+            return int(text)
+        except ValueError:
+            # Python limits decimal-to-int conversion length. Treat a header
+            # beyond that limit as malformed instead of surfacing a 500.
+            return -1
 
     async def _reject(
         self, scope: Scope, receive: Receive, send: Send, status: int
