@@ -6,8 +6,8 @@ Python services and reuses that public edge; do not start a second public Nginx.
 
 1. Install Debian packages `ca-certificates`, `curl`, `python3.11`,
    `python3.11-venv`, `postgresql`, `postgresql-client` and `apache2-utils`.
-   Install `uv`, create the `neko` system user, and copy this
-   tree to `/opt/neko-one`. Run `sudo -u neko uv sync --locked --no-dev` from
+   Install `uv`, create the non-login `nekoapp` system user, and copy this
+   tree to `/opt/neko-one`. Run `sudo -u nekoapp uv sync --locked --no-dev` from
    that directory so deployment uses the committed lock file.
 2. Keep PostgreSQL on loopback, create a dedicated non-superuser role and an
    owned database, then verify that TCP 5432 is not reachable from the public
@@ -15,7 +15,7 @@ Python services and reuses that public edge; do not start a second public Nginx.
 3. Copy `.env.public.example` to `/etc/neko-public.env`, replace every secret and
    domain, set `NEKO_PUBLIC_MIN_FREE_MIB` to the disk headroom required by the
    local retention/backup policy, set the percent-encoded PostgreSQL URL, then
-   set owner `root:neko` and mode `0640`.
+   set owner `root:nekoapp` and mode `0640`.
 4. Keep the existing private model/TTS configuration under the service user's
    application data directory. Do not copy keys into the web root.
    Install only a model with proven Web publication rights under
@@ -89,7 +89,7 @@ throwaway database whose name contains `verify`, never against the production
 database. It requires the explicit reset gate:
 
 ```bash
-sudo -u neko -H bash
+sudo -u nekoapp -H bash
 cd /opt/neko-one
 export NEKO_PUBLIC_DATABASE_URL='postgresql://neko_verify:...@127.0.0.1/neko_verify'
 export NEKO_POSTGRES_RESTORE_URL='postgresql://neko_verify:...@127.0.0.1/neko_restore_verify'
