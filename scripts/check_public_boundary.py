@@ -106,6 +106,7 @@ def main() -> None:
         os.environ["NEKO_PUBLIC_DATA_DIR"] = temporary
         os.environ["NEKO_PUBLIC_LIVE2D_MODEL_NAME"] = ""
         os.environ["NEKO_PUBLIC_LIVE2D_MODEL_FILE"] = ""
+        os.environ["NEKO_TRUSTED_HOSTS"] = "neko.example.test"
         from app.public_room_server.web_app import create_app
 
         app = create_app()
@@ -142,6 +143,11 @@ def main() -> None:
         from fastapi.testclient import TestClient
 
         with TestClient(app, base_url="https://neko.example.test") as client:
+            untrusted_host = client.get(
+                "/", headers={"host": "untrusted.example.test"}
+            )
+            assert untrusted_host.status_code == 400
+            assert untrusted_host.json()["error_code"] == "untrusted_host"
             page = client.get("/")
             assert page.status_code == 200
             assert "default-src 'self'" in page.headers["content-security-policy"]
