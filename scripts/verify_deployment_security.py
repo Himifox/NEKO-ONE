@@ -59,6 +59,7 @@ def main() -> None:
     for token in (
         "NEKO_PUBLIC_HOST=127.0.0.1",
         "NEKO_PUBLIC_FORWARDED_ALLOW_IPS=127.0.0.1",
+        "NEKO_TRUSTED_HOSTS=neko.pardofelis.wiki",
         "NEKO_PUBLIC_DATABASE_URL=postgresql://",
         "NEKO_PUBLIC_ALLOW_MISSING_ORIGIN=0",
         "NEKO_PUBLIC_ALLOWED_ORIGINS=https://neko.pardofelis.wiki",
@@ -74,6 +75,11 @@ def main() -> None:
     entrypoint = _read("app/public_room_server/__main__.py")
     for token in ("ws_max_size=", "ws_max_queue=", "timeout_keep_alive="):
         assert token in entrypoint, f"Uvicorn limit is not wired: {token}"
+
+    web_app = _read("app/public_room_server/web_app.py")
+    assert "application.add_middleware(HostOriginGuardMiddleware)" in web_app, (
+        "public application must reject untrusted Host headers"
+    )
 
     unit = _read("deploy/neko-public.service")
     for token in (

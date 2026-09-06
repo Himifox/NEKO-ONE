@@ -20,6 +20,7 @@ from main_logic.room.session import GuestSessionManager
 from main_routers.public_room_router import router as public_router
 from main_routers.public_admin_router import router as admin_router
 from main_routers.room_websocket_router import router as websocket_router
+from utils.host_origin_guard import HostOriginGuardMiddleware
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -122,6 +123,7 @@ def create_app() -> FastAPI:
         openapi_url=None,
         lifespan=lifespan,
     )
+    application.add_middleware(HostOriginGuardMiddleware)
     application.state.room_service = service
     application.state.guest_sessions = sessions
     application.state.admin_sessions = admin_sessions
