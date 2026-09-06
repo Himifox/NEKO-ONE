@@ -80,6 +80,9 @@ def main() -> None:
     assert "application.add_middleware(HostOriginGuardMiddleware)" in web_app, (
         "public application must reject untrusted Host headers"
     )
+    assert "RequestBodyLimitMiddleware, max_body_bytes=max_http_body_bytes" in web_app, (
+        "public application must enforce the body limit on streamed requests"
+    )
 
     unit = _read("deploy/neko-public.service")
     for token in (
