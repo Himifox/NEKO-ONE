@@ -20,7 +20,7 @@
 先启动 Memory 服务并在与生产相同的服务用户和配置目录下执行：
 
 ```bash
-sudo -u neko /opt/neko-one/.venv/bin/python \
+sudo -u nekoapp /opt/neko-one/.venv/bin/python \
   /opt/neko-one/scripts/provider_acceptance.py preflight \
   --output /var/lib/neko-public/evidence/provider-preflight.json
 ```
@@ -32,7 +32,7 @@ sudo -u neko /opt/neko-one/.venv/bin/python \
 确认测试账户、额度、模型和 Voice 允许公开产品使用后，显式输入费用确认串：
 
 ```bash
-sudo -u neko /opt/neko-one/.venv/bin/python \
+sudo -u nekoapp /opt/neko-one/.venv/bin/python \
   /opt/neko-one/scripts/provider_acceptance.py live \
   --acknowledge I_ACCEPT_PROVIDER_COSTS_AND_TEST_DATA \
   --output /var/lib/neko-public/evidence/provider-live.json

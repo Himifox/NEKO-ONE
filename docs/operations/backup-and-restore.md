@@ -42,7 +42,7 @@ Memory 涉及多个文件之间的逻辑一致性，因此创建快照时暂停 
 ```bash
 sudo systemctl stop neko-memory
 
-sudo -u neko /opt/neko-one/.venv/bin/python \
+sudo -u nekoapp /opt/neko-one/.venv/bin/python \
   /opt/neko-one/scripts/manage_backup.py create \
   --output /var/lib/neko-backup-staging/2026-08-15T120000Z \
   --public-data /var/lib/neko-public \
@@ -60,7 +60,7 @@ sudo systemctl is-active --quiet neko-memory
 立即校验明文快照：
 
 ```bash
-sudo -u neko /opt/neko-one/.venv/bin/python \
+sudo -u nekoapp /opt/neko-one/.venv/bin/python \
   /opt/neko-one/scripts/manage_backup.py verify \
   --backup /var/lib/neko-backup-staging/2026-08-15T120000Z
 ```

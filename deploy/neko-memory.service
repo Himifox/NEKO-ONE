@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=neko
-Group=neko
+User=nekoapp
+Group=nekoapp
 WorkingDirectory=/opt/neko-one
 EnvironmentFile=/etc/neko-public.env
 ExecStart=/opt/neko-one/.venv/bin/python -m app.memory_server
