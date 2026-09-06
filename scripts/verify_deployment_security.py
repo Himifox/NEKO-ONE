@@ -84,6 +84,11 @@ def main() -> None:
         "public application must enforce the body limit on streamed requests"
     )
 
+    websocket_router = _read("main_routers/room_websocket_router.py")
+    assert 'NEKO_PUBLIC_ALLOW_MISSING_ORIGIN", "0"' in websocket_router, (
+        "public WebSockets must reject a missing Origin by default"
+    )
+
     unit = _read("deploy/neko-public.service")
     for token in (
         "NoNewPrivileges=true",
