@@ -19,6 +19,13 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.verification_postgres import connect, database_url, reset_public_tables
 
 
+WEBSOCKET_HEADERS = {"origin": "http://testserver"}
+
+
+def _websocket_connect(client, path: str):
+    return client.websocket_connect(path, headers=WEBSOCKET_HEADERS)
+
+
 def _drain_until(websocket, wanted: str, limit: int = 30) -> list[dict]:
     seen: list[dict] = []
     for _ in range(limit):
@@ -55,6 +62,8 @@ def main() -> None:
     os.environ["NEKO_PUBLIC_DATA_DIR"] = str(data_dir)
     os.environ["NEKO_PUBLIC_ALLOW_LEGACY_MEMORY"] = "0"
     os.environ["NEKO_PUBLIC_ADMIN_PASSWORD"] = "verification-admin-password"
+    os.environ["NEKO_PUBLIC_ALLOWED_ORIGINS"] = WEBSOCKET_HEADERS["origin"]
+    os.environ["NEKO_PUBLIC_ALLOW_MISSING_ORIGIN"] = "0"
     os.environ["NEKO_PUBLIC_LIVE2D_MODEL_NAME"] = ""
     os.environ["NEKO_PUBLIC_LIVE2D_MODEL_FILE"] = ""
     (data_dir / "live2d").mkdir(parents=True, exist_ok=True)
@@ -88,6 +97,7 @@ def main() -> None:
     (speech_root / f"{public_speech_name}.tmp").write_bytes(b"partial")
 
     from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
 
     from app.public_room_server.web_app import app
     from main_logic.room.service import PublicRoomService
@@ -184,9 +194,15 @@ def main() -> None:
             assert session.status_code == 200
             assert session.json()["visitor"]["id"].startswith("vis_")
 
-            with client.websocket_connect("/ws/rooms/main?after_seq=0") as ws1:
+            try:
+                with client.websocket_connect("/ws/rooms/main?after_seq=0"):
+                    raise AssertionError("missing WebSocket Origin was accepted")
+            except WebSocketDisconnect as exc:
+                assert exc.code == 4403
+
+            with _websocket_connect(client, "/ws/rooms/main?after_seq=0") as ws1:
                 _drain_until(ws1, "presence.updated")
-                with client.websocket_connect("/ws/rooms/main?after_seq=0") as ws2:
+                with _websocket_connect(client, "/ws/rooms/main?after_seq=0") as ws2:
                     _drain_until(ws2, "presence.updated")
                     ws1.send_json(
                         {
@@ -246,7 +262,9 @@ def main() -> None:
             assert internal_metadata["target_visitor_id"].startswith("vis_")
             assert "visitor_scope" in internal_metadata["memory_scope"]
 
-            with client.websocket_connect("/ws/rooms/main?after_seq=0") as cold_start:
+            with _websocket_connect(
+                client, "/ws/rooms/main?after_seq=0"
+            ) as cold_start:
                 assert cold_start.receive_json()["type"] == "session.ready"
                 snapshot = cold_start.receive_json()
                 assert snapshot["type"] == "room.snapshot"
@@ -257,7 +275,9 @@ def main() -> None:
                 assert snapshot["payload"]["last_room_seq"] == 3
                 assert cold_start.receive_json()["type"] == "presence.updated"
 
-            with client.websocket_connect("/ws/rooms/main?after_seq=1") as reconnected:
+            with _websocket_connect(
+                client, "/ws/rooms/main?after_seq=1"
+            ) as reconnected:
                 assert reconnected.receive_json()["type"] == "session.ready"
                 replayed_turn = reconnected.receive_json()
                 replayed_reply = reconnected.receive_json()
@@ -356,7 +376,8 @@ def main() -> None:
             app.state.room_service.engine.generate = failing_generate
             app.state.room_service.llm_timeout_seconds = 0.05
             room = client.get("/api/v1/rooms/main").json()
-            with client.websocket_connect(
+            with _websocket_connect(
+                client,
                 f"/ws/rooms/main?after_seq={room['last_seq']}"
             ) as failure_ws:
                 _drain_until(failure_ws, "presence.updated")
@@ -404,7 +425,8 @@ def main() -> None:
 
             memory.record_interaction = failing_memory_write
             room = client.get("/api/v1/rooms/main").json()
-            with client.websocket_connect(
+            with _websocket_connect(
+                client,
                 f"/ws/rooms/main?after_seq={room['last_seq']}"
             ) as memory_ws:
                 _drain_until(memory_ws, "presence.updated")
@@ -457,7 +479,8 @@ def main() -> None:
 
             app.state.room_service.speech.synthesize = failing_speech
             room = client.get("/api/v1/rooms/main").json()
-            with client.websocket_connect(
+            with _websocket_connect(
+                client,
                 f"/ws/rooms/main?after_seq={room['last_seq']}"
             ) as speech_ws:
                 _drain_until(speech_ws, "presence.updated")
@@ -520,7 +543,8 @@ def main() -> None:
             assert controls.json()["controls"]["read_only"] is True
             room = client.get("/api/v1/rooms/main").json()
             assert room["controls"] == controls.json()["controls"]
-            with client.websocket_connect(
+            with _websocket_connect(
+                client,
                 f"/ws/rooms/main?after_seq={room['last_seq']}"
             ) as read_only_ws:
                 _drain_until(read_only_ws, "presence.updated")
@@ -546,7 +570,8 @@ def main() -> None:
             assert paused.status_code == 200
             assert paused.json()["controls"]["paused"] is True
             room = client.get("/api/v1/rooms/main").json()
-            with client.websocket_connect(
+            with _websocket_connect(
+                client,
                 f"/ws/rooms/main?after_seq={room['last_seq']}"
             ) as paused_ws:
                 _drain_until(paused_ws, "presence.updated")
@@ -589,7 +614,8 @@ def main() -> None:
 
             app.state.room_service.engine.generate = slow_generate
             room = client.get("/api/v1/rooms/main").json()
-            with client.websocket_connect(
+            with _websocket_connect(
+                client,
                 f"/ws/rooms/main?after_seq={room['last_seq']}"
             ) as cancellable_ws:
                 _drain_until(cancellable_ws, "presence.updated")
@@ -602,7 +628,8 @@ def main() -> None:
                 )
                 _drain_until(cancellable_ws, "stream.delta")
                 active_room = client.get("/api/v1/rooms/main").json()
-                with client.websocket_connect(
+                with _websocket_connect(
+                    client,
                     f"/ws/rooms/main?after_seq={active_room['last_seq']}"
                 ) as snapshot_ws:
                     ready = snapshot_ws.receive_json()
@@ -814,8 +841,8 @@ def main() -> None:
                 cleaned_room["oldest_available_seq"]
                 == cleaned_room["last_seq"] + 1
             )
-            with client.websocket_connect(
-                "/ws/rooms/main?after_seq=0"
+            with _websocket_connect(
+                client, "/ws/rooms/main?after_seq=0"
             ) as reset_ws:
                 ready = reset_ws.receive_json()
                 assert ready["type"] == "session.ready"

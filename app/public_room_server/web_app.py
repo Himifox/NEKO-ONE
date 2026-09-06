@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.types import Scope
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from main_logic.room.avatar import PublicAvatar
 from main_logic.room.admin_auth import AdminSessionManager
@@ -20,6 +20,7 @@ from main_logic.room.session import GuestSessionManager
 from main_routers.public_room_router import router as public_router
 from main_routers.public_admin_router import router as admin_router
 from main_routers.room_websocket_router import router as websocket_router
+from utils.host_origin_guard import HostOriginGuardMiddleware
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -59,6 +60,93 @@ class SpeechStaticFiles(StaticFiles):
             return Response(status_code=404)
         return await super().get_response(normalized, scope)
 
+
+class RequestBodyLimitMiddleware:
+    """Reject malformed or oversized HTTP bodies before routing them."""
+
+    def __init__(self, app: ASGIApp, *, max_body_bytes: int):
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    @staticmethod
+    def _content_length(scope: Scope) -> int | None:
+        values = [
+            value
+            for name, value in scope.get("headers", ())
+            if name.lower() == b"content-length"
+        ]
+        if not values:
+            return None
+        if len(values) != 1:
+            return -1
+        try:
+            text = values[0].decode("ascii")
+        except UnicodeDecodeError:
+            return -1
+        if not text.isdecimal():
+            return -1
+        try:
+            return int(text)
+        except ValueError:
+            # Python limits decimal-to-int conversion length. Treat a header
+            # beyond that limit as malformed instead of surfacing a 500.
+            return -1
+
+    async def _reject(
+        self, scope: Scope, receive: Receive, send: Send, status: int
+    ) -> None:
+        await Response(status_code=status, headers={"Connection": "close"})(
+            scope, receive, send
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        declared_length = self._content_length(scope)
+        if declared_length == -1:
+            await self._reject(scope, receive, send, 400)
+            return
+        if declared_length is not None and declared_length > self.max_body_bytes:
+            await self._reject(scope, receive, send, 413)
+            return
+
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            if message["type"] != "http.request":
+                await self._reject(scope, receive, send, 400)
+                return
+            chunk = message.get("body", b"")
+            if not isinstance(chunk, bytes):
+                await self._reject(scope, receive, send, 400)
+                return
+            if len(body) + len(chunk) > self.max_body_bytes:
+                await self._reject(scope, receive, send, 413)
+                return
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+
+        replayed = False
+
+        async def replay_receive() -> Message:
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {
+                    "type": "http.request",
+                    "body": bytes(body),
+                    "more_body": False,
+                }
+            return await receive()
+
+        await self.app(scope, replay_receive, send)
+
+
 CONTENT_SECURITY_POLICY = "; ".join(
     (
         "default-src 'self'",
@@ -71,7 +159,7 @@ CONTENT_SECURITY_POLICY = "; ".join(
         "img-src 'self' data: blob:",
         "media-src 'self' blob:",
         "font-src 'self'",
-        "connect-src 'self' ws: wss:",
+        "connect-src 'self'",
         "worker-src 'self' blob:",
         "manifest-src 'self'",
     )
@@ -131,26 +219,13 @@ def create_app() -> FastAPI:
     max_http_body_bytes = _bounded_env_int(
         "NEKO_PUBLIC_MAX_HTTP_BODY_BYTES", 32768, 1024, 1048576
     )
+    application.add_middleware(
+        RequestBodyLimitMiddleware, max_body_bytes=max_http_body_bytes
+    )
 
     @application.middleware("http")
     async def public_security_boundary(request: Request, call_next) -> Response:
-        early_status: int | None = None
-        content_length = request.headers.get("content-length")
-        if content_length:
-            try:
-                declared_length = int(content_length)
-            except ValueError:
-                declared_length = -1
-            if declared_length < 0:
-                early_status = 400
-            elif declared_length > max_http_body_bytes:
-                early_status = 413
-
-        response = (
-            Response(status_code=early_status)
-            if early_status is not None
-            else await call_next(request)
-        )
+        response = await call_next(request)
         response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -177,6 +252,10 @@ def create_app() -> FastAPI:
             # are picked up instead of a cached HTML document.
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    # Keep Host validation outermost so rejected authorities cannot consume the
+    # request-body budget or reach any application middleware.
+    application.add_middleware(HostOriginGuardMiddleware)
 
     application.include_router(public_router)
     application.include_router(admin_router)

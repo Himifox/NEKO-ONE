@@ -75,6 +75,7 @@
     setPlaceholder("正在加载模型预览");
     try {
       const nextModel = await PIXI.live2d.Live2DModel.from(modelUrl, {
+        checkMocConsistency: true,
         autoInteract: false,
       });
       if (requestedVersion !== loadVersion) {

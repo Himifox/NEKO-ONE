@@ -37,7 +37,7 @@ def _origin_allowed(websocket: WebSocket) -> bool:
     }
     if origin:
         return origin in configured
-    return os.environ.get("NEKO_PUBLIC_ALLOW_MISSING_ORIGIN", "1") == "1"
+    return os.environ.get("NEKO_PUBLIC_ALLOW_MISSING_ORIGIN", "0") == "1"
 
 
 @router.websocket("/ws/rooms/{room_id}")
